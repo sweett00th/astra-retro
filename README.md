@@ -14,8 +14,11 @@ browse your library. Milestone 1 is read-only: downloads and emulator launching
 are not implemented. On-device verification is still pending.
 
 If the tablet is connected to your computer with USB debugging enabled, install
-with `adb install -r astra-retro-debug.apk`. Each build uses the same development
-signing key, held in a repository Actions secret, to preserve update compatibility.
+with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a
+project-only development signing key (a repository Actions secret in CI, and
+`astra.debugKeystore` in the ignored `android/local.properties` on the desktop),
+so they can update each other. The first `m1-desktop-1` APK used a different
+key and cannot be updated in place.
 
 [Implementation and validation details](docs/retroarr-milestone-1.md)
 

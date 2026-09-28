@@ -102,3 +102,10 @@ $env:FLUTTER_MACOS = 'false'
 & ../.tools/flutter/bin/flutter.bat build apk --debug --no-pub
 & ../.tools/android/platform-tools/adb.exe install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
+
+Desktop and CI APKs share a project-only development key so either can update
+the other. On the desktop, `android/local.properties` (ignored by Git) points
+to it with `astra.debugKeystore=<absolute path>`; CI restores the same key from
+the `ASTRA_DEBUG_KEYSTORE_B64` secret. Without that property, Gradle signs with
+the machine's default debug key and the APK cannot update CI-built installs.
+Never commit the keystore.

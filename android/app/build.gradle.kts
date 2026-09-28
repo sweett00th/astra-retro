@@ -14,6 +14,15 @@ val keyProperties = Properties().apply {
     }
 }
 
+// Optional machine-local development key (astra.debugKeystore in the ignored
+// local.properties) so desktop and CI debug builds can update each other.
+val localPropertiesFile = rootProject.file("local.properties")
+val astraDebugKeystore = Properties().apply {
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}.getProperty("astra.debugKeystore")?.let { file(it) }
+
 android {
     namespace = "com.retro.rshop"
     compileSdk = flutter.compileSdkVersion
@@ -39,6 +48,14 @@ android {
     }
 
     signingConfigs {
+        if (astraDebugKeystore != null) {
+            getByName("debug") {
+                check(astraDebugKeystore.exists()) {
+                    "astra.debugKeystore not found: $astraDebugKeystore"
+                }
+                storeFile = astraDebugKeystore
+            }
+        }
         if (keyPropertiesFile.exists()) {
             create("release") {
                 storeFile = file(keyProperties["storeFile"] as String)
