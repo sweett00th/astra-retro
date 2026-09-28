@@ -1,4 +1,4 @@
-enum ProviderType { web, smb, ftp, romm }
+enum ProviderType { web, smb, ftp, romm, retroarr }
 
 class AuthConfig {
   final String? user;
@@ -176,6 +176,8 @@ class ProviderConfig {
 
   String get shortLabel {
     switch (type) {
+      case ProviderType.retroarr:
+        return 'RetroArr';
       case ProviderType.web:
         return 'WEB';
       case ProviderType.smb:
@@ -190,6 +192,7 @@ class ProviderConfig {
   String get hostLabel {
     switch (type) {
       case ProviderType.web:
+      case ProviderType.retroarr:
       case ProviderType.romm:
         if (url == null) return '';
         final uri = Uri.tryParse(url!);
@@ -221,6 +224,13 @@ class ProviderConfig {
       case ProviderType.ftp:
         if (host == null || host!.isEmpty) return 'Host is required for FTP provider';
         if (port != null && (port! < 1 || port! > 65535)) return 'Port must be 1–65535';
+        break;
+      case ProviderType.retroarr:
+        final uri = Uri.tryParse(url ?? '');
+        if (uri == null || !['http', 'https'].contains(uri.scheme) ||
+            uri.host.isEmpty || uri.userInfo.isNotEmpty || uri.hasQuery || uri.hasFragment) {
+          return 'Enter a RetroArr HTTP or HTTPS server URL without credentials';
+        }
         break;
       case ProviderType.romm:
         if (url == null || url!.isEmpty) return 'URL is required for RomM provider';
@@ -265,6 +275,7 @@ class ProviderConfig {
       if (p.type != type) continue;
       switch (type) {
         case ProviderType.web:
+        case ProviderType.retroarr:
         case ProviderType.romm:
           if (_normalizeUrl(p.url) == _normalizeUrl(url)) return p;
         case ProviderType.smb:

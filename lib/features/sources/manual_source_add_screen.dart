@@ -11,6 +11,8 @@ import '../../models/config/provider_config.dart';
 import '../../models/config/source.dart';
 import '../../providers/app_providers.dart';
 import '../../services/network_discovery_service.dart';
+import '../../services/retroarr_api_service.dart';
+import '../../models/system_model.dart';
 import '../../widgets/console_hud.dart';
 
 /// Form to add a manual (non-RomM) [Source]: SMB, FTP, or Web.
@@ -48,6 +50,11 @@ class _ManualSourceAddScreenState
   // --- Wrapper focus nodes (controller traverses these) ---
   late List<_Field> _fields;
   final _saveFocus = FocusNode(debugLabel: 'manual_add_save');
+  final _testFocus = FocusNode(debugLabel: 'retroarr_test');
+  List<RetroArrPlatform>? _platforms;
+  String? _testedUrl;
+  String? _testedKey;
+  bool get _isRetroArr => widget.type == SourceType.retroarr;
   final _screenFocus = FocusNode(debugLabel: 'manual_add_screen');
 
   bool _busy = false;
@@ -82,7 +89,7 @@ class _ManualSourceAddScreenState
   }
 
   void _startDiscovery() {
-    if (widget.type == SourceType.web) {
+    if (widget.type == SourceType.web || _isRetroArr) {
       setState(() => _discovering = false);
       return;
     }
@@ -137,17 +144,24 @@ class _ManualSourceAddScreenState
     final t = widget.type;
     return [
       _Field(l.manualSource_name, _nameCtl, hint: _defaultName()),
-      if (t == SourceType.web)
-        _Field(l.manualSource_url, _urlCtl, hint: l.manualSource_urlHint, monospace: true),
+      if (t == SourceType.web || _isRetroArr)
+        _Field(l.manualSource_url, _urlCtl,
+            hint: l.manualSource_urlHint, monospace: true),
       if (t == SourceType.smb || t == SourceType.ftp) ...[
-        _Field(l.manualSource_host, _hostCtl, hint: l.manualSource_hostHint, monospace: true),
-        _Field(l.manualSource_port, _portCtl, hint: t == SourceType.smb ? '445' : '21',
+        _Field(l.manualSource_host, _hostCtl,
+            hint: l.manualSource_hostHint, monospace: true),
+        _Field(l.manualSource_port, _portCtl,
+            hint: t == SourceType.smb ? '445' : '21',
             keyboardType: TextInputType.number),
       ],
       if (t == SourceType.smb)
-        _Field(l.manualSource_share, _shareCtl, hint: l.manualSource_shareHint, monospace: true),
-      _Field(l.manualSource_usernameOptional, _userCtl, hint: l.manualSource_usernameHint),
-      _Field(l.manualSource_passwordOptional, _passCtl,
+        _Field(l.manualSource_share, _shareCtl,
+            hint: l.manualSource_shareHint, monospace: true),
+      if (!_isRetroArr)
+        _Field(l.manualSource_usernameOptional, _userCtl,
+            hint: l.manualSource_usernameHint),
+      _Field(
+          _isRetroArr ? 'API key' : l.manualSource_passwordOptional, _passCtl,
           hint: '••••••••', obscure: true),
     ];
   }
@@ -155,6 +169,8 @@ class _ManualSourceAddScreenState
   String _defaultName() {
     final l = L.of(context);
     switch (widget.type) {
+      case SourceType.retroarr:
+        return 'RetroArr';
       case SourceType.smb:
         return l.manualSource_defaultNameSmb;
       case SourceType.ftp:
@@ -184,6 +200,7 @@ class _ManualSourceAddScreenState
       n.dispose();
     }
     _saveFocus.dispose();
+    _testFocus.dispose();
     _screenFocus.dispose();
     super.dispose();
   }
@@ -231,8 +248,12 @@ class _ManualSourceAddScreenState
     return KeyEventResult.ignored;
   }
 
-  List<FocusNode> get _navOrder =>
-      [..._discoveredFocusNodes, ..._fields.map((f) => f.consoleFocus), _saveFocus];
+  List<FocusNode> get _navOrder => [
+        ..._discoveredFocusNodes,
+        ..._fields.map((f) => f.consoleFocus),
+        if (_isRetroArr) _testFocus,
+        _saveFocus
+      ];
 
   void _moveFocus(int delta) {
     final order = _navOrder;
@@ -260,6 +281,7 @@ class _ManualSourceAddScreenState
         return;
       }
     }
+    if (_testFocus.hasFocus && !_busy) _testConnection();
     if (_saveFocus.hasFocus && !_busy) _save();
   }
 
@@ -289,6 +311,10 @@ class _ManualSourceAddScreenState
   }
 
   Future<void> _save() async {
+    if (_isRetroArr) {
+      await _saveRetroArr();
+      return;
+    }
     final err = _validate();
     if (err != null) {
       setState(() => _error = err);
@@ -345,6 +371,75 @@ class _ManualSourceAddScreenState
     }
   }
 
+  Future<void> _testConnection() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _platforms = null;
+    });
+    try {
+      final url = RetroArrApiService.normalizeUrl(_urlCtl.text);
+      final key = _passCtl.text.trim();
+      final api = RetroArrApiService(ProviderConfig(
+          type: ProviderType.retroarr,
+          priority: 5,
+          url: url,
+          auth: AuthConfig(apiKey: key)));
+      final platforms = await api.fetchPlatforms();
+      if (!mounted) return;
+      setState(() {
+        _platforms = platforms;
+        _testedUrl = url;
+        _testedKey = key;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _saveRetroArr() async {
+    if (_platforms == null ||
+        _testedUrl != _urlCtl.text.trim().replaceFirst(RegExp(r'/+$'), '') ||
+        _testedKey != _passCtl.text.trim()) {
+      await _testConnection();
+    }
+    if (!mounted || _platforms == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final id = 'src-retroarr-${DateTime.now().microsecondsSinceEpoch}';
+      final source = Source(
+          id: id,
+          name:
+              _nameCtl.text.trim().isEmpty ? 'RetroArr' : _nameCtl.text.trim(),
+          type: SourceType.retroarr,
+          url: _testedUrl,
+          autoMap: true,
+          priority: 5,
+          knownPlatforms: RetroArrPlatform.matchSystems(
+              SystemModel.supportedSystems.map((s) => s.id), _platforms!));
+      await RetroArrCredentials.save(id, _testedKey!);
+      final notifier = ref.read(sourcesProvider.notifier);
+      await notifier.ready;
+      await notifier.addSource(source);
+      await notifier.ensureSystemsForSource(source,
+          basePath: ref.read(storageServiceProvider).getRomPath() ??
+              '/storage/emulated/0/ROMs');
+      if (mounted) Navigator.of(context).pop<Source>(source);
+    } catch (_) {
+      if (mounted) {
+        setState(
+            () => _error = 'Could not save RetroArr source. Please retry.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -374,83 +469,110 @@ class _ManualSourceAddScreenState
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Connection only — map systems to remote folders '
-                          'after saving from the source actions menu.',
+                          _isRetroArr
+                              ? 'Read-only library browsing. Test the connection to discover systems.'
+                              : 'Connection only — map systems to remote folders '
+                                  'after saving from the source actions menu.',
                           style: TextStyle(
                               color: Colors.grey.shade500, fontSize: 12),
                         ),
                         const SizedBox(height: 20),
                         Expanded(
                           child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (widget.type != SourceType.web)
-                              _buildDiscoverySection(),
-                            for (final f in _fields) ...[
-                              _textBox(f),
-                              const SizedBox(height: 12),
-                            ],
-                            if (_error != null) ...[
-                              const SizedBox(height: 4),
-                              Text(_error!,
-                                  style: const TextStyle(
-                                      color: Colors.redAccent, fontSize: 13)),
-                            ],
-                            const SizedBox(height: 16),
-                            ConsoleFocusable(
-                              focusNode: _saveFocus,
-                              focusScale: 1.0,
-                              onSelect: _busy ? null : _save,
-                              child: Container(
-                                width: double.infinity,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primaryColor
-                                      .withValues(alpha: 0.18),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                      color: AppTheme.primaryColor, width: 2),
-                                ),
-                                child: _busy
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: AppTheme.primaryColor,
-                                        ),
-                                      )
-                                    : Text(
-                                        L.of(context).manualSource_saveSource,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (widget.type != SourceType.web &&
+                                    !_isRetroArr)
+                                  _buildDiscoverySection(),
+                                for (final f in _fields) ...[
+                                  _textBox(f),
+                                  const SizedBox(height: 12),
+                                ],
+                                if (_isRetroArr) ...[
+                                  ConsoleFocusable(
+                                      focusNode: _testFocus,
+                                      onSelect: _busy ? null : _testConnection,
+                                      child: Padding(
+                                          padding: const EdgeInsets.all(14),
+                                          child: Text(
+                                              _busy
+                                                  ? 'Connecting…'
+                                                  : 'Test Connection',
+                                              style: const TextStyle(
+                                                  color: Colors.white)))),
+                                  if (_platforms != null)
+                                    Text(
+                                        'Connected: ${_platforms!.length} enabled platforms\n${_platforms!.map((p) => p.name).join(', ')}\n'
+                                        '${RetroArrPlatform.matchSystems(SystemModel.supportedSystems.map((s) => s.id), _platforms!).length} systems supported by R-Shop',
                                         style: const TextStyle(
+                                            color: Colors.white70)),
+                                ],
+                                if (_error != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(_error!,
+                                      style: const TextStyle(
+                                          color: Colors.redAccent,
+                                          fontSize: 13)),
+                                ],
+                                const SizedBox(height: 16),
+                                ConsoleFocusable(
+                                  focusNode: _saveFocus,
+                                  focusScale: 1.0,
+                                  onSelect: _busy ? null : _save,
+                                  child: Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 14),
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primaryColor
+                                          .withValues(alpha: 0.18),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
                                           color: AppTheme.primaryColor,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w600,
-                                          letterSpacing: 1,
-                                        ),
-                                      ),
-                              ),
+                                          width: 2),
+                                    ),
+                                    child: _busy
+                                        ? const SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: AppTheme.primaryColor,
+                                            ),
+                                          )
+                                        : Text(
+                                            L
+                                                .of(context)
+                                                .manualSource_saveSource,
+                                            style: const TextStyle(
+                                              color: AppTheme.primaryColor,
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w600,
+                                              letterSpacing: 1,
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                                // Extra bottom padding so content doesn't
+                                // hide behind the HUD.
+                                const SizedBox(height: 56),
+                              ],
                             ),
-                            // Extra bottom padding so content doesn't
-                            // hide behind the HUD.
-                            const SizedBox(height: 56),
-                          ],
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ),
-      ConsoleHud(
-        b: HudAction(L.of(context).common_back, onTap: () => Navigator.maybePop(context)),
-      ),
+          ConsoleHud(
+            b: HudAction(L.of(context).common_back,
+                onTap: () => Navigator.maybePop(context)),
+          ),
         ],
       ),
     );

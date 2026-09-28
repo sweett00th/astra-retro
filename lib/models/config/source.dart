@@ -6,17 +6,20 @@ import 'provider_config.dart';
 /// directory listing (Myrient and friends). RomM is treated as its own
 /// type because it self-describes its platforms via the `/api/platforms`
 /// endpoint and therefore supports auto-mapping.
-enum SourceType { romm, smb, ftp, web, local }
+enum SourceType { romm, smb, ftp, web, local, retroarr }
 
 extension SourceTypeX on SourceType {
   /// Whether this source can advertise its own platform list — `true` only
   /// for RomM today. Auto-mapping (no per-system path needed) hinges on
   /// this; manual sources require an explicit [SystemSourceMapping] per
   /// system to know where their content lives.
-  bool get supportsAutoMap => this == SourceType.romm;
+  bool get supportsAutoMap =>
+      this == SourceType.romm || this == SourceType.retroarr;
 
   String get shortLabel {
     switch (this) {
+      case SourceType.retroarr:
+        return 'RetroArr';
       case SourceType.romm:
         return 'RomM';
       case SourceType.smb:
@@ -233,6 +236,7 @@ class Source {
   /// separate.
   String get connectionKey {
     switch (type) {
+      case SourceType.retroarr:
       case SourceType.romm:
       case SourceType.web:
         return '${type.name}|${_normalizeUrl(url)}';
@@ -261,6 +265,7 @@ class Source {
   /// or "192.168.1.50:8090"). Falls back to [name] if no host is known.
   String get hostLabel {
     switch (type) {
+      case SourceType.retroarr:
       case SourceType.romm:
       case SourceType.web:
         if (url == null) return name;

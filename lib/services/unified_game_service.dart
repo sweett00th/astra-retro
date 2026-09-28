@@ -82,7 +82,8 @@ class UnifiedGameService {
   /// When a user-configured [syncTimeout] is set, it overrides the default
   /// for non-RomM providers. RomM always gets at least 10 minutes.
   Duration _timeoutFor(ProviderConfig config) {
-    if (config.type == ProviderType.romm) {
+    if (config.type == ProviderType.romm ||
+        config.type == ProviderType.retroarr) {
       final userTimeout = syncTimeout ?? NetworkTimeouts.paginatedDiscovery;
       // RomM always gets at least the default 10-minute pagination timeout
       return userTimeout > NetworkTimeouts.paginatedDiscovery

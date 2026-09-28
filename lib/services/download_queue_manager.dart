@@ -194,7 +194,11 @@ class DownloadQueueManager extends ChangeNotifier {
     _processQueue();
   }
 
-  String addToQueue(GameItem game, SystemModel system, String targetFolder, {bool autoExtract = false}) {
+  String addToQueue(GameItem game, SystemModel system, String targetFolder,
+      {bool autoExtract = false}) {
+    if (game.isReadOnly) {
+      throw UnsupportedError('RetroArr is read-only in Milestone 1');
+    }
     final id = _generateId(game, system);
 
     final existing = _state.getDownloadById(id);

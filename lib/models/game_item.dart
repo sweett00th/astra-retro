@@ -22,6 +22,7 @@ class AlternativeSource {
 }
 
 class GameItem {
+  bool get isReadOnly => providerConfig?.type == ProviderType.retroarr;
   final String filename;
   final String displayName;
   final String url;

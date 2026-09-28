@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'retroarr_artwork_service.dart';
 
 /// Checks file magic bytes for PNG/JPEG/GIF/WebP headers.
 /// Returns false for HTML error pages, truncated downloads, or unknown formats.
@@ -122,8 +123,6 @@ class GameCoverCacheManager {
   }
 }
 
-
-
 class _QueueEntry {
   final Completer<void> completer;
   final String url;
@@ -143,12 +142,14 @@ class RateLimitedFileService extends FileService {
   static Duration _requestDelay = const Duration(milliseconds: 10);
   static bool _configured = false;
 
-  static void configure({required int maxConcurrent, required Duration requestDelay}) {
+  static void configure(
+      {required int maxConcurrent, required Duration requestDelay}) {
     if (_configured) return;
     _maxConcurrent = maxConcurrent;
     _requestDelay = requestDelay;
     _configured = true;
   }
+
   static const Duration _rateLimitTtl = Duration(minutes: 10);
   static final Map<String, DateTime> _rateLimitedHosts = {};
   static int _activeRequests = 0;
@@ -216,7 +217,8 @@ class RateLimitedFileService extends FileService {
         await Future.delayed(_requestDelay);
       }
 
-      final response = await _httpFileService.get(url, headers: headers);
+      final response = await RetroArrArtworkService.fetch(url) ??
+          await _httpFileService.get(url, headers: headers);
 
       if (response.statusCode == 429) {
         _rateLimitedHosts[uri.host] = DateTime.now();

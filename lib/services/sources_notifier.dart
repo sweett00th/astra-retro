@@ -13,6 +13,7 @@ import 'config_storage_service.dart';
 import 'database_service.dart';
 import 'romm_pairing_service.dart';
 import 'source_resolver.dart';
+import 'retroarr_api_service.dart';
 
 /// Snapshot exposed by [SourcesNotifier]. Loading and error states are
 /// modelled explicitly so the UI can show a spinner / retry without
@@ -243,9 +244,12 @@ class SourcesNotifier extends StateNotifier<SourcesState> {
   /// system grids stop showing stale entries.
   Future<void> removeSource(String id) async {
     if (!state.sources.any((s) => s.id == id)) return;
+    final isRetroArr =
+        state.sources.any((s) => s.id == id && s.type == SourceType.retroarr);
     final next = state.sources.where((s) => s.id != id).toList();
     await _writeAndPublish(next);
     await _purgeCachedGamesFor(id);
+    if (isRetroArr) await RetroArrCredentials.remove(id);
   }
 
   /// Toggle helper for the off-switch in the Sources screen. When the
@@ -477,6 +481,8 @@ class SourcesNotifier extends StateNotifier<SourcesState> {
   static bool _providerMatchesSource(ProviderConfig p, Source s) {
     // Reuse SourceResolver's matching rules.
     switch (s.type) {
+      case SourceType.retroarr:
+        return p.type == ProviderType.retroarr && s.url != null && s.url == p.url;
       case SourceType.romm:
       case SourceType.web:
         return s.url != null && s.url == p.url;
@@ -495,4 +501,3 @@ class SourcesNotifier extends StateNotifier<SourcesState> {
   @visibleForTesting
   AppConfig get debugCachedConfig => _cachedConfig;
 }
-

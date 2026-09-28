@@ -166,6 +166,7 @@ class OnboardingState {
         return has('host') && has('port') && has('path');
       case ProviderType.smb:
         return has('host') && has('port') && has('share') && has('path');
+      case ProviderType.retroarr:
       case ProviderType.romm:
         return has('url');
     }
@@ -188,6 +189,7 @@ class OnboardingState {
         if (!has('share')) missing.add('Share');
         if (!has('path')) missing.add('Path');
       case ProviderType.web:
+      case ProviderType.retroarr:
       case ProviderType.romm:
         if (!has('url')) missing.add('URL');
     }

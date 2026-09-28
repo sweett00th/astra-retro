@@ -216,6 +216,8 @@ AppConfig _migrateLegacyToV3(List<SystemConfig> legacySystems) {
 
 SourceType _typeFromProvider(ProviderType t) {
   switch (t) {
+    case ProviderType.retroarr:
+      return SourceType.retroarr;
     case ProviderType.romm:
       return SourceType.romm;
     case ProviderType.smb:
@@ -229,6 +231,7 @@ SourceType _typeFromProvider(ProviderType t) {
 
 String _deriveName(ProviderConfig p) {
   switch (p.type) {
+    case ProviderType.retroarr:
     case ProviderType.romm:
     case ProviderType.web:
       final uri = p.url != null ? Uri.tryParse(p.url!) : null;
@@ -242,6 +245,8 @@ String _deriveName(ProviderConfig p) {
 
 String _legacyRemotePath(ProviderConfig p) {
   switch (p.type) {
+    case ProviderType.retroarr:
+      return '';
     case ProviderType.smb:
     case ProviderType.ftp:
       return p.path ?? '';

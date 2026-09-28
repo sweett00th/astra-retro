@@ -87,6 +87,8 @@ class SourceResolver {
 
   static bool _typeMatches(SourceType st, ProviderType pt) {
     switch (st) {
+      case SourceType.retroarr:
+        return pt == ProviderType.retroarr;
       case SourceType.romm:
         return pt == ProviderType.romm;
       case SourceType.smb:
@@ -102,6 +104,7 @@ class SourceResolver {
 
   static bool _connectionMatches(Source s, ProviderConfig p) {
     switch (s.type) {
+      case SourceType.retroarr:
       case SourceType.romm:
       case SourceType.web:
         return s.url == p.url;
@@ -121,9 +124,12 @@ class SourceResolver {
     final source = entry.source;
     final mapping = entry.mapping;
     switch (source.type) {
+      case SourceType.retroarr:
       case SourceType.romm:
         return ProviderConfig(
-          type: ProviderType.romm,
+          type: source.type == SourceType.retroarr
+              ? ProviderType.retroarr
+              : ProviderType.romm,
           priority: entry.effectivePriority,
           url: source.url,
           auth: source.auth,

@@ -7,6 +7,8 @@ import '../../models/config/source.dart';
 Color sourceDotColorFor(Source source) {
   if (source.borrowed) return Colors.lightBlueAccent;
   switch (source.type) {
+    case SourceType.retroarr:
+      return Colors.greenAccent;
     case SourceType.romm:
       return Colors.greenAccent;
     case SourceType.smb:

@@ -11,6 +11,7 @@ import '../../core/responsive/responsive.dart';
 import '../../models/download_item.dart';
 import '../../models/game_item.dart';
 import '../../models/game_metadata_info.dart';
+import '../../services/providers/retroarr_provider.dart';
 import '../../models/system_model.dart';
 import '../../models/ra_models.dart';
 import '../../providers/app_providers.dart';
@@ -114,6 +115,22 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
     _debouncer = ref.read(inputDebouncerProvider);
     final queueManager = ref.read(downloadQueueManagerProvider);
     _initController(queueManager);
+    if (widget.game.isReadOnly) _loadRetroArrDetails();
+  }
+
+  Future<void> _loadRetroArrDetails() async {
+    try {
+      await RetroArrProvider(widget.game.providerConfig!)
+          .fetchDetails(widget.game, widget.system.id);
+      if (!mounted) return;
+      ref.invalidate(groupMetadataProvider);
+    } catch (_) {
+      if (mounted) {
+        showErrorNotification(context, ref,
+            message:
+                'Could not load RetroArr details. Cached metadata is still available.');
+      }
+    }
   }
 
   void _initController(DownloadQueueManager queueManager) {
@@ -1256,13 +1273,18 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
     );
   }
 
-
   Widget _buildPrimaryActionSection(
     GameDetailState state,
     GameDetailController controller,
     bool isMultiRom, {
     required bool isFocused,
   }) {
+    if (controller.selectedVariant.isReadOnly) {
+      return const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('Remote library · Read-only',
+              style: TextStyle(color: Colors.white70)));
+    }
     final baseState = _getDownloadButtonState(state, isMultiRom);
     var buttonState = baseState;
     var progress = 0.0;

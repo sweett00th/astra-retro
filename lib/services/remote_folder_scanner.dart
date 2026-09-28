@@ -33,6 +33,7 @@ class RemoteFolderScanner {
         return _scanFtp(config);
       case ProviderType.web:
         return _scanWeb(config, dio);
+      case ProviderType.retroarr:
       case ProviderType.romm:
         throw StateError('RemoteFolderScanner does not support RomM');
     }

@@ -229,7 +229,9 @@ class _SourcesScreenState extends ConsumerState<SourcesScreen>
     showSuccessNotification(
       context,
       ref,
-      message: 'Added ${result.name} — map systems from its actions menu',
+      message: result.type == SourceType.retroarr
+          ? 'Added ${result.name} — open Library to browse'
+          : 'Added ${result.name} — map systems from its actions menu',
     );
   }
 
@@ -725,6 +727,7 @@ class _SourceCard extends ConsumerWidget {
   Color get _accent {
     if (source.borrowed) return Colors.lightBlueAccent;
     switch (source.type) {
+      case SourceType.retroarr:
       case SourceType.romm:
         return Colors.greenAccent;
       case SourceType.smb:
@@ -740,6 +743,7 @@ class _SourceCard extends ConsumerWidget {
 
   IconData get _icon {
     switch (source.type) {
+      case SourceType.retroarr:
       case SourceType.romm:
         return source.borrowed ? Icons.share : Icons.dns_outlined;
       case SourceType.smb:
@@ -1013,7 +1017,7 @@ class _SourceActionsOverlayState extends ConsumerState<_SourceActionsOverlay> {
           label: l.sources_rePair,
           onActivate: widget.onRepair,
         ),
-      if (src.type != SourceType.romm)
+      if (!src.type.supportsAutoMap)
         _OverlayAction(
           icon: Icons.tune,
           label: l.sources_editMappings,
@@ -1276,38 +1280,43 @@ class _SourceTypePickerOverlayState
   List<_TypeOption> _options = const [];
 
   static List<_TypeOption> _buildOptions(L l) => [
-    _TypeOption(
-      type: SourceType.romm,
-      icon: Icons.qr_code_2,
-      label: l.sources_sourceTypeRomm,
-      hint: l.sources_sourceTypeRommHint,
-    ),
-    _TypeOption(
-      type: SourceType.romm,
-      icon: Icons.password,
-      label: l.sources_sourceTypeRommLegacy,
-      hint: l.onboarding_legacyLoginSubtitle,
-      isLegacy: true,
-    ),
-    _TypeOption(
-      type: SourceType.smb,
-      icon: Icons.folder_shared,
-      label: l.sources_sourceTypeSmb,
-      hint: 'Windows / NAS network share',
-    ),
-    _TypeOption(
-      type: SourceType.ftp,
-      icon: Icons.cloud_queue,
-      label: l.sources_sourceTypeFtp,
-      hint: 'Classic FTP/FTPS host',
-    ),
-    _TypeOption(
-      type: SourceType.web,
-      icon: Icons.public,
-      label: l.sources_sourceTypeWeb,
-      hint: l.sources_sourceTypeWebHint,
-    ),
-  ];
+        const _TypeOption(
+            type: SourceType.retroarr,
+            icon: Icons.dns_outlined,
+            label: 'RetroArr',
+            hint: 'Read-only self-hosted library'),
+        _TypeOption(
+          type: SourceType.romm,
+          icon: Icons.qr_code_2,
+          label: l.sources_sourceTypeRomm,
+          hint: l.sources_sourceTypeRommHint,
+        ),
+        _TypeOption(
+          type: SourceType.romm,
+          icon: Icons.password,
+          label: l.sources_sourceTypeRommLegacy,
+          hint: l.onboarding_legacyLoginSubtitle,
+          isLegacy: true,
+        ),
+        _TypeOption(
+          type: SourceType.smb,
+          icon: Icons.folder_shared,
+          label: l.sources_sourceTypeSmb,
+          hint: 'Windows / NAS network share',
+        ),
+        _TypeOption(
+          type: SourceType.ftp,
+          icon: Icons.cloud_queue,
+          label: l.sources_sourceTypeFtp,
+          hint: 'Classic FTP/FTPS host',
+        ),
+        _TypeOption(
+          type: SourceType.web,
+          icon: Icons.public,
+          label: l.sources_sourceTypeWeb,
+          hint: l.sources_sourceTypeWebHint,
+        ),
+      ];
 
   @override
   void dispose() {

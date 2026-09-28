@@ -205,6 +205,19 @@ class _WelcomeChooserStepState extends ConsumerState<WelcomeChooserStep> {
 
   Future<void> _handleManualServer() async {
     if (_busy) return;
+    final type = await _showTypePicker();
+    if (type == null || !mounted) return;
+    if (type == SourceType.retroarr) {
+      final source = await Navigator.of(context).push<Source>(
+          MaterialPageRoute(builder: (_) => ManualSourceAddScreen(type: type)));
+      if (!mounted || source == null) return;
+      await ref
+          .read(onboardingControllerProvider.notifier)
+          .completeFromRommPairing(
+              sourcesNotifier: ref.read(sourcesProvider.notifier),
+              source: source);
+      return;
+    }
     final basePath = await _pickRomBaseFolder();
     if (!mounted || basePath == null) return;
 
@@ -220,9 +233,6 @@ class _WelcomeChooserStepState extends ConsumerState<WelcomeChooserStep> {
       _busy = false;
       _busyMessage = null;
     });
-
-    final type = await _showTypePicker();
-    if (type == null || !mounted) return;
 
     final source = await Navigator.of(context).push<Source?>(
       MaterialPageRoute(builder: (_) => ManualSourceAddScreen(type: type)),
@@ -269,7 +279,12 @@ class _WelcomeChooserStepState extends ConsumerState<WelcomeChooserStep> {
           title: Text(L.of(context).onboarding_serverType,
               style: const TextStyle(color: Colors.white)),
           content: _TypePickerBody(
-            types: const [SourceType.smb, SourceType.ftp, SourceType.web],
+            types: const [
+              SourceType.retroarr,
+              SourceType.smb,
+              SourceType.ftp,
+              SourceType.web
+            ],
             iconFor: _iconFor,
             onPick: (t) => Navigator.of(ctx).pop(t),
           ),
@@ -558,4 +573,3 @@ class _TypePickerBodyState extends State<_TypePickerBody> {
     );
   }
 }
-

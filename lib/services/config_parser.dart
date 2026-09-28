@@ -92,6 +92,7 @@ class ConfigParser {
           throw ConfigParseException(
               'FTP provider for "$systemId" requires a host');
         }
+      case ProviderType.retroarr:
       case ProviderType.romm:
         if (provider.url == null || provider.url!.isEmpty) {
           throw ConfigParseException(

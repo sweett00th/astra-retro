@@ -106,7 +106,7 @@ class _ProviderFormState extends ConsumerState<ProviderForm> {
     final state = ref.read(onboardingControllerProvider);
     final form = state.providerForm;
     if (form == null) return;
-    const types = ProviderType.values;
+    const types = [ProviderType.web, ProviderType.smb, ProviderType.ftp, ProviderType.romm];
     final currentIndex = types.indexOf(form.type);
     final newIndex = (currentIndex + delta) % types.length;
     ref.read(onboardingControllerProvider.notifier).setProviderType(types[newIndex]);
@@ -301,7 +301,7 @@ class _ProviderFormState extends ConsumerState<ProviderForm> {
     ProviderFormState form,
     OnboardingController controller,
   ) {
-    const types = ProviderType.values;
+    const types = [ProviderType.web, ProviderType.smb, ProviderType.ftp, ProviderType.romm];
     final chipFontSize = rs.isSmall ? 11.0 : 13.0;
 
     return CallbackShortcuts(
@@ -402,6 +402,8 @@ class _ProviderFormState extends ConsumerState<ProviderForm> {
           SizedBox(height: rs.spacing.sm),
           _buildTextField(rs, 'domain', l.providerForm_domain, l.providerForm_domainOptional, form),
         ];
+      case ProviderType.retroarr:
+        return [const Text('Configure RetroArr from Settings > Sources.')];
       case ProviderType.romm:
         return [
           _buildTextField(rs, 'url', l.providerForm_rommUrl, l.providerForm_rommUrlPlaceholder, form),
