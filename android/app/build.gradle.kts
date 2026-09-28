@@ -14,6 +14,12 @@ val keyProperties = Properties().apply {
     }
 }
 
+// `flutter build --no-pub` does not regenerate the plugin registrant. Without
+// it no Android plugins register and the app crashes at startup in libdartjni.
+check(file("src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java").exists()) {
+    "GeneratedPluginRegistrant.java is missing; run `flutter pub get` before building."
+}
+
 // Optional machine-local development key (astra.debugKeystore in the ignored
 // local.properties) so desktop and CI debug builds can update each other.
 val localPropertiesFile = rootProject.file("local.properties")

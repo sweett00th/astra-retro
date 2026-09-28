@@ -98,7 +98,9 @@ $env:GRADLE_USER_HOME = 'C:/dev/astra-retro/.tools/gradle'
 $env:FLUTTER_WINDOWS = 'false'
 $env:FLUTTER_LINUX = 'false'
 $env:FLUTTER_MACOS = 'false'
-# Run from R-Shop:
+# Run from R-Shop. `pub get` also generates the Android plugin registrant,
+# which `--no-pub` builds need; the Gradle build fails if it is missing.
+& ../.tools/flutter/bin/flutter.bat pub get --enforce-lockfile
 & ../.tools/flutter/bin/flutter.bat build apk --debug --no-pub
 & ../.tools/android/platform-tools/adb.exe install -r build/app/outputs/flutter-apk/app-debug.apk
 ```
