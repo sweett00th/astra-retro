@@ -97,6 +97,8 @@ void main() {
         'psx');
     expect(info.summary, 'Stored description');
     expect(info.developer, 'Example Studio');
+    expect(info.releaseYear, 1999);
+    expect(info.releaseDate, '1999-01-01');
     expect(saved.single.filename, 'test-source-7');
   });
 
@@ -137,32 +139,56 @@ void main() {
           'page': page,
           'totalPages': 2,
           'items': [
-            {
-              'id': page,
-              'title': 'Game $page',
-              'platformId': 42,
-              'year': 1998,
-              'coverUrl': '/images/cover.jpg',
-              'rating': 85,
-              'genres': ['Adventure'],
-              'status': 'Downloaded'
-            }
+            page == 1
+                ? {
+                    'id': page,
+                    'title': 'Game $page',
+                    'platformId': 42,
+                    'year': 1998,
+                    'coverUrl': '/images/cover.jpg',
+                    'rating': 85,
+                    'genres': ['Adventure'],
+                    'status': 4
+                  }
+                // Unmatched titles: RetroArr sends year 0 and no genres.
+                : {
+                    'id': page,
+                    'title': 'Game $page',
+                    'platformId': 42,
+                    'year': 0,
+                    'genres': [],
+                    'status': 4
+                  }
           ]
         });
       });
     final saved = <GameMetadataInfo>[];
     final provider = RetroArrProvider(config,
         api: RetroArrApiService(config, dio: dio),
-        saveMetadata: (_, rows) async => saved.addAll(rows));
+        saveMetadata: (_, rows) async => saved.addAll(rows),
+        loadMetadata: (systemId) async => {
+              'test-source-1': GameMetadataInfo(
+                  filename: 'test-source-1',
+                  systemSlug: systemId,
+                  summary: 'Cached description',
+                  developer: 'Cached Studio',
+                  releaseDate: '1998-03-01',
+                  lastUpdated: 0)
+            });
     final games = await provider.fetchGames(system);
     expect(pages, [1, 2]);
     expect(games.map((g) => g.filename), ['test-source-1', 'test-source-2']);
     expect(games.first.displayName, 'Game 1');
     expect(games.first.cachedCoverUrl,
         'http://catalog.example/retroarr/images/cover.jpg');
+    expect(games.last.cachedCoverUrl, isNull);
     expect(games.first.isReadOnly, true);
-    expect(saved.first.releaseYear, 1998);
-    expect(saved.first.genres, 'Adventure');
+    expect(saved.single.filename, 'test-source-1');
+    expect(saved.single.releaseYear, 1998);
+    expect(saved.single.genres, 'Adventure');
+    expect(saved.single.summary, 'Cached description');
+    expect(saved.single.developer, 'Cached Studio');
+    expect(saved.single.releaseDate, '1998-03-01');
     await expectLater(
         provider.resolveDownload(games.first), throwsUnsupportedError);
   });

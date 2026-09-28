@@ -12,11 +12,27 @@ class RetroArrProvider implements SourceProvider {
   final ProviderConfig config;
   final RetroArrApiService _api;
   final Future<void> Function(String, List<GameMetadataInfo>) _saveMetadata;
+  final Future<Map<String, GameMetadataInfo>> Function(String) _loadMetadata;
   RetroArrProvider(this.config,
       {RetroArrApiService? api,
-      Future<void> Function(String, List<GameMetadataInfo>)? saveMetadata})
+      Future<void> Function(String, List<GameMetadataInfo>)? saveMetadata,
+      Future<Map<String, GameMetadataInfo>> Function(String)? loadMetadata})
       : _api = api ?? RetroArrApiService(config),
-        _saveMetadata = saveMetadata ?? DatabaseService().saveGameMetadata;
+        _saveMetadata = saveMetadata ?? DatabaseService().saveGameMetadata,
+        _loadMetadata = loadMetadata ?? DatabaseService().getMetadataForSystem;
+
+  // RetroArr sends year 0 when unknown and full DateTime strings; the detail
+  // UI expects a real year and a YYYY-MM-DD date, as the RomM provider stores.
+  static int? _year(Object? value) {
+    final year = (value as num?)?.toInt();
+    return year != null && year > 0 ? year : null;
+  }
+
+  static String? _date(Object? value) =>
+      value is String ? RegExp(r'^\d{4}-\d{2}-\d{2}').stringMatch(value) : null;
+
+  static String? _genres(Object? value) =>
+      value is List && value.isNotEmpty ? value.join(', ') : null;
 
   @override
   String get displayLabel => 'RetroArr';
@@ -38,6 +54,9 @@ class RetroArrProvider implements SourceProvider {
       throw StateError('RetroArr platform is not mapped.');
     }
     final rows = await _api.fetchGames(platformId);
+    // Catalog rows lack the detail fields; keep those cached from earlier
+    // detail fetches instead of replacing them with empty values.
+    final cached = await _loadMetadata(system.id);
     final games = <GameItem>[];
     final metadata = <GameMetadataInfo>[];
     for (final row in rows) {
@@ -49,13 +68,19 @@ class RetroArrProvider implements SourceProvider {
           url: _api.endpoint('game/$id'),
           cachedCoverUrl: _api.artworkUrl(row['coverUrl'] as String?),
           providerConfig: config));
-      metadata.add(GameMetadataInfo(
+      final previous = cached[filename];
+      final info = GameMetadataInfo(
           filename: filename,
           systemSlug: system.id,
-          genres: (row['genres'] as List?)?.join(', '),
-          releaseYear: (row['year'] as num?)?.toInt(),
+          summary: previous?.summary,
+          developer: previous?.developer,
+          publisher: previous?.publisher,
+          releaseDate: previous?.releaseDate,
+          genres: _genres(row['genres']),
+          releaseYear: _year(row['year']),
           rating: (row['rating'] as num?)?.toDouble(),
-          lastUpdated: DateTime.now().millisecondsSinceEpoch));
+          lastUpdated: DateTime.now().millisecondsSinceEpoch);
+      if (info.hasContent) metadata.add(info);
     }
     await _saveMetadata(system.id, metadata);
     return games;
@@ -74,9 +99,9 @@ class RetroArrProvider implements SourceProvider {
         summary: row['overview'] as String?,
         developer: row['developer'] as String?,
         publisher: row['publisher'] as String?,
-        genres: (row['genres'] as List?)?.join(', '),
-        releaseYear: (row['year'] as num?)?.toInt(),
-        releaseDate: row['releaseDate'] as String?,
+        genres: _genres(row['genres']),
+        releaseYear: _year(row['year']),
+        releaseDate: _date(row['releaseDate']),
         rating: (row['rating'] as num?)?.toDouble(),
         lastUpdated: DateTime.now().millisecondsSinceEpoch);
     await _saveMetadata(systemId, [info]);
