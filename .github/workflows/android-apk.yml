@@ -39,9 +39,12 @@ jobs:
             echo 'Set ASTRA_DEBUG_KEYSTORE_B64 before building to preserve APK update compatibility.'
             exit 1
           fi
-          mkdir -p "$HOME/.android"
-          printf '%s' "$ASTRA_DEBUG_KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
-          chmod 600 "$HOME/.android/debug.keystore"
+          keystore="$RUNNER_TEMP/astra-debug.keystore"
+          printf '%s' "$ASTRA_DEBUG_KEYSTORE_B64" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          # Same explicit override as desktop builds (android/app/build.gradle.kts);
+          # the runner's default debug keystore location was not used for signing.
+          echo "astra.debugKeystore=$keystore" >> android/local.properties
       - run: flutter pub get --enforce-lockfile
       - run: flutter analyze --no-pub --no-fatal-infos
       - name: Test RetroArr, controller form, and source configuration
@@ -56,6 +59,17 @@ jobs:
           test/provider_config_test.dart
       - name: Build Astra APK
         run: flutter build apk --debug --no-pub --target-platform android-arm64
+      - name: Verify project signing key
+        env:
+          # Public certificate digest of the project development key.
+          EXPECTED_CERT_SHA256: c1eb9b6f44fd1d3f722559e6f41f1f862e5a86e4ff0c2f7e346cd060069fcd49
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)/apksigner"
+          "$apksigner" verify --print-certs build/app/outputs/flutter-apk/app-debug.apk | tee "$RUNNER_TEMP/signer.txt"
+          if ! grep -q "certificate SHA-256 digest: $EXPECTED_CERT_SHA256" "$RUNNER_TEMP/signer.txt"; then
+            echo 'APK is not signed with the project development key; refusing to publish.'
+            exit 1
+          fi
       - name: Prepare download
         run: |
           cp build/app/outputs/flutter-apk/app-debug.apk astra-retro-debug.apk
