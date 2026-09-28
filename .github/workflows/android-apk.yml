@@ -1,0 +1,88 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: '3.38.10'
+          channel: stable
+          cache: true
+      - name: Restore development signing key
+        env:
+          ASTRA_DEBUG_KEYSTORE_B64: ${{ secrets.ASTRA_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$ASTRA_DEBUG_KEYSTORE_B64" ]; then
+            echo 'Set ASTRA_DEBUG_KEYSTORE_B64 before building to preserve APK update compatibility.'
+            exit 1
+          fi
+          mkdir -p "$HOME/.android"
+          printf '%s' "$ASTRA_DEBUG_KEYSTORE_B64" | base64 --decode > "$HOME/.android/debug.keystore"
+          chmod 600 "$HOME/.android/debug.keystore"
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze --no-pub --no-fatal-infos
+      - name: Test RetroArr, controller form, and source configuration
+        run: >-
+          flutter test --no-pub
+          test/retroarr_provider_test.dart
+          test/widgets/retroarr_source_form_test.dart
+          test/source_resolver_test.dart
+          test/source_model_test.dart
+          test/sources_notifier_test.dart
+          test/config_parser_test.dart
+          test/provider_config_test.dart
+      - name: Build Astra APK
+        run: flutter build apk --debug --no-pub --target-platform android-arm64
+      - name: Prepare download
+        run: |
+          cp build/app/outputs/flutter-apk/app-debug.apk astra-retro-debug.apk
+          sha256sum astra-retro-debug.apk > astra-retro-debug.apk.sha256
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: astra-retro-debug
+          path: |
+            astra-retro-debug.apk
+            astra-retro-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish direct APK download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="m1-build-${GITHUB_RUN_NUMBER}"
+          cat > release-notes.md <<'NOTES'
+          Milestone 1 development APK for ARM64 Android tablets, including the REDMAGIC Astra.
+
+          Download `astra-retro-debug.apk` on the tablet, open it, and allow installation from your browser or file manager when Android prompts you.
+
+          RetroArr browsing is read-only. Enter your own server URL and API key in the app. Downloads and emulator launching are not implemented. Physical Astra and real-library verification are still pending.
+
+          This APK uses a consistent development signing key so subsequent builds can update the app without clearing its data.
+          NOTES
+          gh release create "$tag" astra-retro-debug.apk astra-retro-debug.apk.sha256 \
+            --target "$GITHUB_SHA" --title "Milestone 1 development build ${GITHUB_RUN_NUMBER}" \
+            --notes-file release-notes.md --latest

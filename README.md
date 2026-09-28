@@ -1,4 +1,27 @@
-# 🎮 R-Shop
+# Astra Retro
+
+A controller-first Android frontend for your self-hosted RetroArr library, built
+on [R-Shop](https://github.com/AverageConsumer/R-Shop).
+
+**[Download the latest Astra APK](https://github.com/sweett00th/astra-retro/releases/latest/download/astra-retro-debug.apk)**
+· [Release notes](https://github.com/sweett00th/astra-retro/releases)
+· [Build status](https://github.com/sweett00th/astra-retro/actions/workflows/android-apk.yml)
+
+Open the APK on your Astra and allow installation from your browser/file manager
+when Android prompts you. The app currently appears as **R-Shop**. Add a
+**RetroArr** source, enter your server URL and API key, test the connection, and
+browse your library. Milestone 1 is read-only: downloads and emulator launching
+are not implemented. On-device verification is still pending.
+
+If the tablet is connected to your computer with USB debugging enabled, install
+with `adb install -r astra-retro-debug.apk`. Each build uses the same development
+signing key, held in a repository Actions secret, to preserve update compatibility.
+
+[Implementation and validation details](docs/retroarr-milestone-1.md)
+
+---
+
+## Original R-Shop project
 
 **The fastest way to turn your retro library into a console-like experience on Android.**
 
