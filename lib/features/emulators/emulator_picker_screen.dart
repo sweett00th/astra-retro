@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../core/widgets/console_focusable.dart';
@@ -81,6 +82,15 @@ class _EmulatorPickerScreenState extends State<EmulatorPickerScreen> {
     Navigator.of(context).pop(EmulatorChoice(id, forWholeSystem: forSystem));
   }
 
+  /// Official download page for an emulator that is not installed.
+  void _openHomepage(int index) {
+    if (index == 0) return;
+    final option = _options![index - 1];
+    final url = option.definition.homepage;
+    if (option.installed || url == null) return;
+    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
   void _move(int delta) {
     if (_nodes.isEmpty) return;
     setState(() => _focused = (_focused + delta).clamp(0, _nodes.length - 1));
@@ -88,13 +98,16 @@ class _EmulatorPickerScreenState extends State<EmulatorPickerScreen> {
   }
 
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent && event is! KeyRepeatEvent)
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
+    }
     final key = event.logicalKey;
     if (key == LogicalKeyboardKey.arrowDown) {
       _move(1);
     } else if (key == LogicalKeyboardKey.arrowUp) {
       _move(-1);
+    } else if (key == LogicalKeyboardKey.gameButtonX) {
+      _openHomepage(_focused);
     } else if (key == LogicalKeyboardKey.gameButtonY) {
       _pick(_focused, forSystem: true);
     } else if (key == LogicalKeyboardKey.gameButtonB ||
@@ -201,7 +214,10 @@ class _EmulatorPickerScreenState extends State<EmulatorPickerScreen> {
                                       ? 'Pick any installed app each time'
                                       : options[i].installed
                                           ? 'Installed${options[i].versionName != null ? ' · ${options[i].versionName}' : ''}'
-                                          : 'Not installed',
+                                          : options[i].definition.homepage !=
+                                                  null
+                                              ? 'Not installed · X: get it'
+                                              : 'Not installed',
                                   selected: widget.currentId == options[i].id,
                                   dim: !options[i].installed,
                                 ),
@@ -214,6 +230,7 @@ class _EmulatorPickerScreenState extends State<EmulatorPickerScreen> {
           ),
           ConsoleHud(
             b: HudAction('Back', onTap: () => Navigator.maybePop(context)),
+            x: HudAction('Get emulator', onTap: () => _openHomepage(_focused)),
             y: HudAction('All ${widget.systemName}',
                 onTap: () => _pick(_focused, forSystem: true)),
           ),

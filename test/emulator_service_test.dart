@@ -120,6 +120,13 @@ void main() {
         'open-with');
   });
 
+  test('ScummVM games open the ScummVM app, with a download page', () async {
+    final options = await EmulatorService().optionsFor('scummvm');
+    expect(options.map((o) => o.id), ['scummvm', 'open-with']);
+    expect(options.first.definition.launchesFiles, false);
+    expect(options.first.definition.homepage,
+        startsWith('https://www.scummvm.org'));
+  });
   test('nothing installed falls back to Open with', () async {
     final picked =
         await EmulatorService().resolve('gc', 'g.rvz', await prefs());

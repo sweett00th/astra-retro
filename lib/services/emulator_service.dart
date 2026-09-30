@@ -54,6 +54,7 @@ const builtInEmulators = <EmulatorDefinition>[
     ],
     systems: [..._retroArchSystems],
     cores: _retroArchCores,
+    homepage: 'https://www.retroarch.com/?page=platforms',
   ),
   EmulatorDefinition(
     id: 'dolphin',
@@ -63,6 +64,7 @@ const builtInEmulators = <EmulatorDefinition>[
     action: 'android.intent.action.MAIN',
     extras: [EmulatorExtra('AutoStartFile', '{path}')],
     systems: ['gc', 'wii'],
+    homepage: 'https://dolphin-emu.org/download/',
   ),
   EmulatorDefinition(
     id: 'ppsspp',
@@ -71,6 +73,7 @@ const builtInEmulators = <EmulatorDefinition>[
     activity: 'org.ppsspp.ppsspp.PpssppActivity',
     romAsData: true,
     systems: ['psp'],
+    homepage: 'https://www.ppsspp.org/download/',
   ),
   EmulatorDefinition(
     id: 'duckstation',
@@ -83,6 +86,7 @@ const builtInEmulators = <EmulatorDefinition>[
       EmulatorExtra('resumeState', false, EmulatorExtraType.bool),
     ],
     systems: ['psx'],
+    homepage: 'https://www.duckstation.org/',
   ),
   EmulatorDefinition(
     id: 'nethersx2',
@@ -108,6 +112,7 @@ const builtInEmulators = <EmulatorDefinition>[
     packages: ['org.azahar_emu.azahar', 'io.github.lime3ds.android'],
     romAsData: true,
     systems: ['n3ds'],
+    homepage: 'https://azahar-emu.org/',
   ),
   EmulatorDefinition(
     id: 'eden',
@@ -126,6 +131,17 @@ const builtInEmulators = <EmulatorDefinition>[
     packages: ['org.vita3k.emulator'],
     systems: ['psvita'],
     launchesFiles: false,
+    homepage: 'https://vita3k.org/',
+  ),
+  // ScummVM keeps its own game list; R-Shop opens it until direct per-game
+  // launch is verified against the installed app.
+  EmulatorDefinition(
+    id: 'scummvm',
+    name: 'ScummVM',
+    packages: ['org.scummvm.scummvm', 'org.scummvm.scummvm.debug'],
+    systems: ['scummvm'],
+    launchesFiles: false,
+    homepage: 'https://www.scummvm.org/downloads/',
   ),
   EmulatorDefinition(
     id: 'rpcs3',

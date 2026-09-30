@@ -43,6 +43,9 @@ class EmulatorDefinition {
   /// Confirmed against the installed app on a real device.
   final bool verified;
 
+  /// Official download page, offered when the emulator is not installed.
+  final String? homepage;
+
   const EmulatorDefinition({
     required this.id,
     required this.name,
@@ -55,6 +58,7 @@ class EmulatorDefinition {
     this.cores = const {},
     this.launchesFiles = true,
     this.verified = false,
+    this.homepage,
   });
 
   bool supports(String systemId) =>

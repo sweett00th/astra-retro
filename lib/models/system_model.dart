@@ -843,6 +843,24 @@ class SystemModel {
       accentColor: Color(0xFF9CA3AF),
       raConsoleId: 26,
     ),
+    // ===== SCUMMVM =====
+    // Point-and-click adventures. Each game is a folder of data files
+    // (MONKEY.000, TENTACLE.001, *.LA0, ...), kept as a folder on download.
+    SystemModel(
+      id: 'scummvm',
+      name: 'ScummVM',
+      manufacturer: 'LucasArts, Sierra & more',
+      releaseYear: 1987,
+      isZipped: false,
+      libretroId: 'ScummVM',
+      romExtensions: ['.scummvm', '.svm'],
+      multiFileExtensions: [
+        '.000', '.001', '.la0', '.la1', '.lfl', '.sou', '.he0', '.he1',
+        '.rsc', '.cat', '.map', '.dat', '.exe', '.scummvm', '.svm',
+      ],
+      iconName: 'scummvm.svg',
+      accentColor: Color(0xFF7BC043),
+    ),
     // ===== NINTENDO =====
     SystemModel(
       id: 'gameandwatch',
