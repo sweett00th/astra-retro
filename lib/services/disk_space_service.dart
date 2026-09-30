@@ -43,9 +43,15 @@ class DiskSpaceService {
   static Future<StorageInfo?> getFreeSpace(String path) async {
     if (!Platform.isAndroid) return null;
     try {
+      // A system folder may not exist before its first download; StatFs
+      // rejects missing paths, so measure the nearest existing parent.
+      var dir = Directory(path);
+      while (!await dir.exists() && dir.parent.path != dir.path) {
+        dir = dir.parent;
+      }
       final result =
           await _channel.invokeMapMethod<String, dynamic>('getFreeSpace', {
-        'path': path,
+        'path': dir.path,
       });
       if (result == null) return null;
       return StorageInfo(
