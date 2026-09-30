@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../models/config/provider_config.dart';
 import '../models/config/source.dart';
 import '../models/system_model.dart';
+import '../services/retroarr_api_service.dart';
 import '../services/romm_api_service.dart';
 import '../services/romm_platform_matcher.dart';
 
@@ -70,7 +72,10 @@ class SourceHealthNotifier extends StateNotifier<SourceHealthState> {
   /// auto-create missing SystemConfigs.
   Future<Map<String, Map<String, int>>> checkAll(List<Source> sources) async {
     final rommSources = sources
-        .where((s) => s.type == SourceType.romm && s.enabled && s.url != null)
+        .where((s) =>
+            (s.type == SourceType.romm || s.type == SourceType.retroarr) &&
+            s.enabled &&
+            s.url != null)
         .toList();
 
     if (rommSources.isEmpty) return const {};
@@ -87,10 +92,20 @@ class SourceHealthNotifier extends StateNotifier<SourceHealthState> {
     final results = await Future.wait(
       rommSources.map((s) async {
         try {
-          final platforms =
-              await api.fetchPlatforms(s.url!, auth: s.auth);
-          final known = RommPlatformMatcher.buildKnownPlatforms(
-              allSystemIds, platforms);
+          final Map<String, int> known;
+          if (s.type == SourceType.retroarr) {
+            final platforms = await RetroArrApiService(ProviderConfig(
+                    type: ProviderType.retroarr,
+                    priority: s.priority,
+                    url: s.url,
+                    sourceId: s.id))
+                .fetchPlatforms();
+            known = RetroArrPlatform.matchSystems(allSystemIds, platforms);
+          } else {
+            final platforms = await api.fetchPlatforms(s.url!, auth: s.auth);
+            known = RommPlatformMatcher.buildKnownPlatforms(
+                allSystemIds, platforms);
+          }
           return MapEntry(s.id, SourceHealthResult.valid(known));
         } catch (e) {
           debugPrint('SourceHealthCheck: ${s.name} failed: $e');

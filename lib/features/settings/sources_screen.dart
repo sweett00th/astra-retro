@@ -24,6 +24,7 @@ import '../../widgets/console_notification.dart';
 import '../onboarding/widgets/romm_legacy_login_screen.dart';
 import '../pairing/qr_pairing_screen.dart';
 import '../sources/manual_source_add_screen.dart';
+import '../sources/retroarr_scan_screen.dart';
 import '../sources/source_mappings_screen.dart';
 
 /// Verwaltungs-Screen für alle gepairten / konfigurierten [Source]s.
@@ -372,6 +373,12 @@ class _SourcesScreenState extends ConsumerState<SourcesScreen>
   /// the existing source's id, name, and per-system mappings while
   /// swapping in the fresh bearer token + expiry. Used by the user when a
   /// borrowed token is about to expire (or already has).
+  Future<void> _scanSource(Source source) async {
+    setState(() => _activeActionsSource = null);
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RetroArrScanScreen(sources: [source])));
+  }
+
   Future<void> _repairSource(Source source) async {
     setState(() => _activeActionsSource = null);
 
@@ -507,6 +514,7 @@ class _SourcesScreenState extends ConsumerState<SourcesScreen>
                 onRepair: () => _repairSource(_activeActionsSource!),
                 onEditMappings: () =>
                     _editMappings(_activeActionsSource!),
+                onScan: () => _scanSource(_activeActionsSource!),
               ),
             if (_showTypePicker)
               _SourceTypePickerOverlay(
@@ -986,6 +994,7 @@ class _SourceActionsOverlay extends ConsumerStatefulWidget {
     required this.onRemove,
     required this.onRepair,
     required this.onEditMappings,
+    required this.onScan,
   });
 
   final Source source;
@@ -994,6 +1003,7 @@ class _SourceActionsOverlay extends ConsumerStatefulWidget {
   final VoidCallback onRemove;
   final VoidCallback onRepair;
   final VoidCallback onEditMappings;
+  final VoidCallback onScan;
 
   @override
   ConsumerState<_SourceActionsOverlay> createState() =>
@@ -1016,6 +1026,12 @@ class _SourceActionsOverlayState extends ConsumerState<_SourceActionsOverlay> {
           icon: Icons.qr_code_2,
           label: l.sources_rePair,
           onActivate: widget.onRepair,
+        ),
+      if (src.type == SourceType.retroarr)
+        _OverlayAction(
+          icon: Icons.manage_search_rounded,
+          label: 'Scan RetroArr library',
+          onActivate: widget.onScan,
         ),
       if (!src.type.supportsAutoMap)
         _OverlayAction(
@@ -1284,7 +1300,7 @@ class _SourceTypePickerOverlayState
             type: SourceType.retroarr,
             icon: Icons.dns_outlined,
             label: 'RetroArr',
-            hint: 'Read-only self-hosted library'),
+            hint: 'Your self-hosted game library'),
         _TypeOption(
           type: SourceType.romm,
           icon: Icons.qr_code_2,

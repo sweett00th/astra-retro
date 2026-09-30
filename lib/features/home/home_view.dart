@@ -5,6 +5,7 @@ import '../../core/input/input.dart';
 import '../../core/responsive/responsive.dart';
 import '../../core/widgets/screen_layout.dart';
 import '../../l10n/app_localizations.dart';
+import '../../models/config/source.dart';
 import '../../models/system_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/download_providers.dart';
@@ -21,6 +22,7 @@ import '../../widgets/download_overlay.dart';
 import '../library/library_screen.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../settings/settings_screen.dart';
+import '../sources/retroarr_scan_screen.dart';
 import '../game_list/game_list_screen.dart';
 import 'widgets/hero_carousel_item.dart';
 import 'widgets/home_grid_view.dart';
@@ -443,6 +445,12 @@ class _HomeViewState extends ConsumerState<HomeView>
           icon: Icons.sync_rounded,
           onSelect: _syncAll,
         ),
+      if (_retroArrSources.isNotEmpty)
+        QuickMenuItem(
+          label: 'Scan RetroArr library',
+          icon: Icons.manage_search_rounded,
+          onSelect: _scanRetroArr,
+        ),
       QuickMenuItem(
         label: l.home_settings,
         icon: Icons.settings_rounded,
@@ -459,6 +467,19 @@ class _HomeViewState extends ConsumerState<HomeView>
         ),
       ],
     ];
+  }
+
+  List<Source> get _retroArrSources => ref
+      .read(sourcesProvider)
+      .sources
+      .where((s) => s.type == SourceType.retroarr && s.enabled && s.url != null)
+      .toList();
+
+  void _scanRetroArr() {
+    final sources = _retroArrSources;
+    if (sources.isEmpty) return;
+    Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => RetroArrScanScreen(sources: sources)));
   }
 
   void _syncCurrentSystem() async {
