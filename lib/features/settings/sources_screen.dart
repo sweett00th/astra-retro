@@ -368,17 +368,26 @@ class _SourcesScreenState extends ConsumerState<SourcesScreen>
     if (mounted) _closeSourceActions();
   }
 
-  /// Re-pair flow: closes the action overlay, opens the QR scanner, and on
-  /// success calls [SourcesNotifier.refreshTokenFromPair] which preserves
-  /// the existing source's id, name, and per-system mappings while
-  /// swapping in the fresh bearer token + expiry. Used by the user when a
-  /// borrowed token is about to expire (or already has).
   Future<void> _scanSource(Source source) async {
     setState(() => _activeActionsSource = null);
     await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => RetroArrScanScreen(sources: [source])));
   }
 
+  /// Change a RetroArr source's URL or API key in place, keeping its id,
+  /// cached library, downloads and emulator choices.
+  Future<void> _editConnection(Source source) async {
+    setState(() => _activeActionsSource = null);
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) =>
+            ManualSourceAddScreen(type: source.type, existing: source)));
+  }
+
+  /// Re-pair flow: closes the action overlay, opens the QR scanner, and on
+  /// success calls [SourcesNotifier.refreshTokenFromPair] which preserves
+  /// the existing source's id, name, and per-system mappings while
+  /// swapping in the fresh bearer token + expiry. Used by the user when a
+  /// borrowed token is about to expire (or already has).
   Future<void> _repairSource(Source source) async {
     setState(() => _activeActionsSource = null);
 
@@ -515,6 +524,8 @@ class _SourcesScreenState extends ConsumerState<SourcesScreen>
                 onEditMappings: () =>
                     _editMappings(_activeActionsSource!),
                 onScan: () => _scanSource(_activeActionsSource!),
+                onEditConnection: () =>
+                    _editConnection(_activeActionsSource!),
               ),
             if (_showTypePicker)
               _SourceTypePickerOverlay(
@@ -995,6 +1006,7 @@ class _SourceActionsOverlay extends ConsumerStatefulWidget {
     required this.onRepair,
     required this.onEditMappings,
     required this.onScan,
+    required this.onEditConnection,
   });
 
   final Source source;
@@ -1004,6 +1016,7 @@ class _SourceActionsOverlay extends ConsumerStatefulWidget {
   final VoidCallback onRepair;
   final VoidCallback onEditMappings;
   final VoidCallback onScan;
+  final VoidCallback onEditConnection;
 
   @override
   ConsumerState<_SourceActionsOverlay> createState() =>
@@ -1032,6 +1045,12 @@ class _SourceActionsOverlayState extends ConsumerState<_SourceActionsOverlay> {
           icon: Icons.manage_search_rounded,
           label: 'Scan RetroArr library',
           onActivate: widget.onScan,
+        ),
+      if (src.type == SourceType.retroarr)
+        _OverlayAction(
+          icon: Icons.edit_outlined,
+          label: 'Edit connection',
+          onActivate: widget.onEditConnection,
         ),
       if (!src.type.supportsAutoMap)
         _OverlayAction(

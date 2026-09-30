@@ -27,9 +27,12 @@ import '../../widgets/console_hud.dart';
 /// screen-level Focus owns ↑/↓ traversal and routes B to either exit
 /// the active text field or pop the screen, mirroring [ManualPairingScreen].
 class ManualSourceAddScreen extends ConsumerStatefulWidget {
-  const ManualSourceAddScreen({super.key, required this.type});
+  const ManualSourceAddScreen({super.key, required this.type, this.existing});
 
   final SourceType type;
+
+  /// RetroArr source being edited; its id, library and settings are kept.
+  final Source? existing;
 
   @override
   ConsumerState<ManualSourceAddScreen> createState() =>
@@ -72,6 +75,11 @@ class _ManualSourceAddScreenState
     // Default ports keep parity with the legacy onboarding flow.
     if (widget.type == SourceType.smb) _portCtl.text = '445';
     if (widget.type == SourceType.ftp) _portCtl.text = '21';
+    final existing = widget.existing;
+    if (existing != null) {
+      _nameCtl.text = existing.name;
+      _urlCtl.text = existing.url ?? '';
+    }
     _fields = [];
     _startDiscovery();
   }
@@ -162,7 +170,10 @@ class _ManualSourceAddScreenState
             hint: l.manualSource_usernameHint),
       _Field(
           _isRetroArr ? 'API key' : l.manualSource_passwordOptional, _passCtl,
-          hint: '••••••••', obscure: true),
+          hint: widget.existing != null
+              ? 'Leave blank to keep current key'
+              : '••••••••',
+          obscure: true),
     ];
   }
 
@@ -379,7 +390,11 @@ class _ManualSourceAddScreenState
     });
     try {
       final url = RetroArrApiService.normalizeUrl(_urlCtl.text);
-      final key = _passCtl.text.trim();
+      var key = _passCtl.text.trim();
+      // Editing: a blank key field keeps the stored key.
+      if (key.isEmpty && widget.existing != null) {
+        key = await RetroArrCredentials.read(widget.existing!.id) ?? '';
+      }
       final api = RetroArrApiService(ProviderConfig(
           type: ProviderType.retroarr,
           priority: 5,
@@ -400,9 +415,10 @@ class _ManualSourceAddScreenState
   }
 
   Future<void> _saveRetroArr() async {
+    final typedKey = _passCtl.text.trim();
     if (_platforms == null ||
         _testedUrl != _urlCtl.text.trim().replaceFirst(RegExp(r'/+$'), '') ||
-        _testedKey != _passCtl.text.trim()) {
+        (typedKey.isNotEmpty && _testedKey != typedKey)) {
       await _testConnection();
     }
     if (!mounted || _platforms == null) return;
@@ -411,21 +427,29 @@ class _ManualSourceAddScreenState
       _error = null;
     });
     try {
-      final id = 'src-retroarr-${DateTime.now().microsecondsSinceEpoch}';
-      final source = Source(
-          id: id,
-          name:
-              _nameCtl.text.trim().isEmpty ? 'RetroArr' : _nameCtl.text.trim(),
-          type: SourceType.retroarr,
-          url: _testedUrl,
-          autoMap: true,
-          priority: 5,
-          knownPlatforms: RetroArrPlatform.matchSystems(
-              SystemModel.supportedSystems.map((s) => s.id), _platforms!));
-      await RetroArrCredentials.save(id, _testedKey!);
+      final name =
+          _nameCtl.text.trim().isEmpty ? 'RetroArr' : _nameCtl.text.trim();
+      final known = RetroArrPlatform.matchSystems(
+          SystemModel.supportedSystems.map((s) => s.id), _platforms!);
+      final existing = widget.existing;
+      final source = existing != null
+          ? existing.copyWith(name: name, url: _testedUrl, knownPlatforms: known)
+          : Source(
+              id: 'src-retroarr-${DateTime.now().microsecondsSinceEpoch}',
+              name: name,
+              type: SourceType.retroarr,
+              url: _testedUrl,
+              autoMap: true,
+              priority: 5,
+              knownPlatforms: known);
+      await RetroArrCredentials.save(source.id, _testedKey!);
       final notifier = ref.read(sourcesProvider.notifier);
       await notifier.ready;
-      await notifier.addSource(source);
+      if (existing != null) {
+        await notifier.updateSource(source);
+      } else {
+        await notifier.addSource(source);
+      }
       await notifier.ensureSystemsForSource(source,
           basePath: ref.read(storageServiceProvider).getRomPath() ??
               '/storage/emulated/0/ROMs');
@@ -460,7 +484,9 @@ class _ManualSourceAddScreenState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Add ${_typeLabel(widget.type)} source',
+                          widget.existing != null
+                              ? 'Edit ${widget.existing!.name}'
+                              : 'Add ${_typeLabel(widget.type)} source',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 22,
