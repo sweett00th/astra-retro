@@ -11,6 +11,7 @@ import '../models/system_model.dart';
 import '../utils/file_utils.dart';
 import '../utils/friendly_error.dart';
 import '../utils/network_constants.dart';
+import 'disk_space_service.dart';
 import 'download_handle.dart';
 import 'native_smb_service.dart';
 import 'provider_factory.dart';
@@ -102,6 +103,15 @@ class DownloadService {
       final tempDir = await getTemporaryDirectory();
       final now = DateTime.now();
       await for (final entity in tempDir.list()) {
+        // Partial multi-file downloads are kept for resume, but not forever.
+        if (entity is Directory &&
+            p.basename(entity.path).startsWith('http_folder_')) {
+          final modified = (await entity.stat()).modified;
+          if (now.difference(modified) > const Duration(days: 7)) {
+            await entity.delete(recursive: true);
+          }
+          continue;
+        }
         if (entity is! File) continue;
         final name = p.basename(entity.path);
         // Only clean files matching our temp pattern (timestamp_hash_filename)
@@ -299,9 +309,21 @@ class DownloadService {
         return;
       }
 
+      final expectedBytes = switch (handle) {
+        HttpDownloadHandle(:final expectedBytes) => expectedBytes,
+        HttpFolderDownloadHandle() => handle.totalBytes,
+        _ => null,
+      };
+      if (expectedBytes != null && expectedBytes > 0) {
+        await _ensureFreeSpace(expectedBytes, targetFolder, tempFile.parent.path);
+      }
+
       switch (handle) {
         case HttpDownloadHandle():
           await _downloadHttp(handle, tempFile);
+        case HttpFolderDownloadHandle():
+          await _downloadHttpFolder(handle, game, targetFolder);
+          return; // folder download handles its own post-processing
         case NativeSmbDownloadHandle():
           await _downloadNativeSmb(handle, tempFile);
         case FtpDownloadHandle():
@@ -334,10 +356,129 @@ class DownloadService {
     }
   }
 
+  /// Fails early when the download (plus its temporary copy) cannot fit.
+  Future<void> _ensureFreeSpace(
+      int bytes, String targetFolder, String tempFolder) async {
+    const margin = 256 * 1024 * 1024;
+    final target = await DiskSpaceService.getFreeSpace(targetFolder);
+    final temp = await DiskSpaceService.getFreeSpace(tempFolder);
+    // Temp and library usually share internal storage; the final move is a
+    // copy, so both copies exist briefly.
+    final sameVolume = target != null &&
+        temp != null &&
+        target.totalBytes == temp.totalBytes;
+    final needed = (sameVolume ? bytes * 2 : bytes) + margin;
+    for (final info in [target, temp]) {
+      if (info != null && info.freeBytes < needed) {
+        throw Exception('Not enough free space: this game needs '
+            '${_formatBytes(needed)}, only ${info.freeSpaceText} available');
+      }
+    }
+  }
+
+  static String _formatBytes(int bytes) {
+    final gb = bytes / (1024 * 1024 * 1024);
+    return gb >= 1
+        ? '${gb.toStringAsFixed(1)} GB'
+        : '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
+  }
+
+  /// Downloads every file of a multi-file game with per-file HTTP resume.
+  /// Partial files live in a stable temp folder, so a retry continues where
+  /// the previous attempt stopped; a cancel discards them.
+  Future<void> _downloadHttpFolder(
+    HttpFolderDownloadHandle handle,
+    GameItem game,
+    String targetFolder,
+  ) async {
+    if (handle.files.isEmpty) {
+      _emitError('The server has no files for this game');
+      return;
+    }
+    final relativePaths = [
+      for (final f in handle.files) _safeRelativePath(f.relativePath)
+    ];
+    final tempRoot = await getTemporaryDirectory();
+    final folderTempDir = Directory(p.join(tempRoot.path,
+        'http_folder_${handle.resumeKey.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_')}'));
+    await folderTempDir.create(recursive: true);
+    _folderTempDir = folderTempDir;
+
+    final total = handle.totalBytes;
+    var completed = 0;
+    for (var i = 0; i < handle.files.length; i++) {
+      if (_isCancelled) { _emitCancelled(); return; }
+      final file = handle.files[i];
+      final local = File(p.joinAll([folderTempDir.path, ...relativePaths[i]]));
+      await local.parent.create(recursive: true);
+      if (file.size > 0 && await local.exists() && await local.length() == file.size) {
+        completed += file.size; // finished in an earlier attempt
+        continue;
+      }
+      await _downloadHttp(
+        HttpDownloadHandle(
+            url: file.url,
+            headers: handle.headers,
+            followRedirects: handle.followRedirects),
+        local,
+        progressBase: completed,
+        progressTotal: total > 0 ? total : null,
+      );
+      if (_isCancelled) { _emitCancelled(); return; }
+      final size = await local.length();
+      if (file.size > 0 && size != file.size) {
+        throw Exception('Incomplete download of ${file.relativePath}: '
+            'expected ${file.size} bytes, got $size');
+      }
+      completed += file.size > 0 ? file.size : size;
+    }
+
+    if (_progressController?.isClosed == false) {
+      _progressController?.add(DownloadProgress(status: DownloadStatus.moving, progress: 1.0));
+    }
+    final installRoot = handle.subfolder == null
+        ? targetFolder
+        : RomManager.safePath(targetFolder, handle.subfolder!);
+    for (var i = 0; i < handle.files.length; i++) {
+      if (_isCancelled) { _emitCancelled(); return; }
+      final source = File(p.joinAll([folderTempDir.path, ...relativePaths[i]]));
+      final target = p.joinAll([installRoot, ...relativePaths[i]]);
+      await Directory(p.dirname(target)).create(recursive: true);
+      await moveFile(source, target);
+    }
+
+    _folderTempDir = null;
+    try {
+      await folderTempDir.delete(recursive: true);
+    } catch (e) {
+      debugPrint('DownloadService: folder temp cleanup: $e');
+    }
+    if (_progressController?.isClosed == false) {
+      _progressController?.add(DownloadProgress(status: DownloadStatus.completed, progress: 1.0));
+      _progressController?.close();
+    }
+  }
+
+  /// Splits a server-supplied relative path, rejecting anything that could
+  /// escape the install folder.
+  static List<String> _safeRelativePath(String raw) {
+    final normalized = raw.replaceAll('\\', '/');
+    final parts = normalized.split('/').where((s) => s.isNotEmpty && s != '.').toList();
+    if (normalized.startsWith('/') ||
+        RegExp(r'^[A-Za-z]:').hasMatch(normalized) ||
+        parts.isEmpty ||
+        parts.contains('..')) {
+      throw Exception('Unsafe file path from server: $raw');
+    }
+    return parts;
+  }
+
   Future<void> _downloadHttp(
     HttpDownloadHandle handle,
     File tempFile, {
     int depth = 0,
+    int progressBase = 0,
+    int? progressTotal,
   }) async {
     _httpClient?.close(force: true);
     _httpClient = HttpClient()
@@ -355,6 +496,7 @@ class DownloadService {
 
     final uri = Uri.parse(handle.url);
     final request = await client.openUrl('GET', uri);
+    request.followRedirects = handle.followRedirects;
 
     request.headers.set('User-Agent',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -420,10 +562,14 @@ class DownloadService {
       debugPrint('DownloadService: temp file already complete or oversized, restarting');
       await tempFile.delete();
       // Recurse once with fresh state
-      return _downloadHttp(handle, tempFile, depth: depth + 1);
+      return _downloadHttp(handle, tempFile,
+          depth: depth + 1, progressBase: progressBase, progressTotal: progressTotal);
     }
 
-    final effectiveTotalBytes = totalBytes > 0 ? totalBytes : null;
+    final effectiveTotalBytes =
+        progressTotal ?? (totalBytes > 0 ? totalBytes : null);
+    // Multi-file downloads report progress across all files.
+    downloadedBytes += progressBase;
     final sink = tempFile.openWrite(mode: writeMode);
     int lastUpdateTime = 0;
     // Stopwatch only measures new bytes for speed calculation

@@ -10,8 +10,8 @@ on [R-Shop](https://github.com/AverageConsumer/R-Shop).
 Open the APK on your Astra and allow installation from your browser/file manager
 when Android prompts you. The app currently appears as **R-Shop**. Add a
 **RetroArr** source, enter your server URL and API key, test the connection, and
-browse your library. Milestone 1 is read-only: downloads and emulator launching
-are not implemented. On-device verification is still pending.
+browse and download your library. Use **Scan RetroArr library** in the quick menu
+after adding games on the server. Emulator launching is not implemented yet.
 
 If the tablet is connected to your computer with USB debugging enabled, install
 with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a

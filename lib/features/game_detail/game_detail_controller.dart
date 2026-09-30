@@ -133,9 +133,7 @@ class GameDetailController extends ChangeNotifier {
     // On first build, jump straight to the primary action (Download/Delete)
     if (!_hasSetInitialFocus) {
       _hasSetInitialFocus = true;
-      final primaryIdx = sections.indexOf(game.isReadOnly
-          ? DetailSection.actions
-          : DetailSection.primaryAction);
+      final primaryIdx = sections.indexOf(DetailSection.primaryAction);
       if (primaryIdx >= 0) {
         _state = _state.copyWith(focusedSectionIndex: primaryIdx);
         return;
@@ -450,7 +448,6 @@ class GameDetailController extends ChangeNotifier {
   }
 
   Future<bool> addToQueue() async {
-    if (selectedVariant.isReadOnly) return false;
     if (_state.isAddingToQueue) return false;
 
     _state = _state.copyWith(isAddingToQueue: true, clearError: true);
@@ -578,7 +575,6 @@ class GameDetailController extends ChangeNotifier {
   }
 
   Future<void> performAction() async {
-    if (selectedVariant.isReadOnly) return;
     if (_state.isOverlayOpen) return;
     if (variants.length > 1) {
       openVariantPicker();

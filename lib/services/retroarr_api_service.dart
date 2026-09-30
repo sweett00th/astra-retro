@@ -6,7 +6,12 @@ import 'romm_api_service.dart';
 import 'romm_platform_matcher.dart';
 
 class RetroArrCredentials {
-  static const _storage = FlutterSecureStorage();
+  // Must match StorageService: both share Android's secure prefs file, and
+  // opening it in encrypted mode migrates entries written in the default
+  // mode, which then become invisible to a default-mode reader.
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
   static Future<void> save(String sourceId, String key) =>
       _storage.write(key: 'retroarr:$sourceId', value: key);
   static Future<String?> read(String sourceId) =>
@@ -49,7 +54,56 @@ class RetroArrPlatform {
               .toList());
 }
 
-/// Catalog-only client. Credentials are headers, never URL parameters.
+class RetroArrFile {
+  final String relativePath;
+  final int size;
+  final String fileType;
+  const RetroArrFile(this.relativePath, this.size, this.fileType);
+
+  factory RetroArrFile.fromJson(Map<String, dynamic> json) => RetroArrFile(
+        (json['relativePath'] ?? json['name']) as String,
+        (json['size'] as num?)?.toInt() ?? 0,
+        json['fileType'] as String? ?? 'Main',
+      );
+}
+
+/// Starts a RetroArr library scan and reports its status until it ends.
+///
+/// RetroArr ignores a start request while a scan is running, so this simply
+/// follows whichever scan is active. If no scan shows up within [startGrace]
+/// (small libraries finish almost instantly), the last status is final.
+Stream<RetroArrScanStatus> scanRetroArrLibrary(
+  RetroArrApiService api, {
+  Duration poll = const Duration(seconds: 2),
+  Duration startGrace = const Duration(seconds: 6),
+  Duration timeout = const Duration(hours: 3),
+}) async* {
+  await api.triggerScan();
+  final elapsed = Stopwatch()..start();
+  var started = false;
+  while (elapsed.elapsed < timeout) {
+    await Future<void>.delayed(poll);
+    final status = await api.scanStatus();
+    if (status.isScanning) {
+      started = true;
+      yield status;
+    } else if (started || elapsed.elapsed >= startGrace) {
+      yield status;
+      return;
+    }
+  }
+  throw StateError('RetroArr is still scanning. Check again later.');
+}
+
+class RetroArrScanStatus {
+  final bool isScanning;
+  final int gamesAdded;
+  final String? lastGameFound;
+  const RetroArrScanStatus(
+      {required this.isScanning, required this.gamesAdded, this.lastGameFound});
+}
+
+/// RetroArr client. Credentials are headers, never URL parameters.
 class RetroArrApiService {
   final ProviderConfig config;
   final Dio _dio;
@@ -72,7 +126,8 @@ class RetroArrApiService {
   String get baseUrl => normalizeUrl(config.url ?? '');
   String endpoint(String path) => '$baseUrl/api/v3/$path';
 
-  Future<dynamic> get(String path, {Map<String, dynamic>? query}) async {
+  /// Auth header for API and file requests. Never put the key in a URL.
+  Future<Map<String, String>> authHeaders() async {
     final key = config.auth?.apiKey ??
         (config.sourceId == null
             ? null
@@ -80,13 +135,25 @@ class RetroArrApiService {
     if (key == null || key.isEmpty) {
       throw StateError('RetroArr API key is required.');
     }
+    return {'X-Api-Key': key};
+  }
+
+  Future<dynamic> get(String path, {Map<String, dynamic>? query}) =>
+      _request('GET', path, query: query);
+
+  Future<dynamic> _request(String method, String path,
+      {Map<String, dynamic>? query, Object? body}) async {
+    final headers = await authHeaders();
     try {
       final response = await _dio
-          .get<dynamic>(
+          .request<dynamic>(
             endpoint(path),
             queryParameters: query,
+            data: body,
             options: Options(
-                headers: {'X-Api-Key': key},
+                method: method,
+                headers: headers,
+                contentType: body == null ? null : Headers.jsonContentType,
                 followRedirects: false,
                 sendTimeout: const Duration(seconds: 15),
                 receiveTimeout: const Duration(seconds: 30)),
@@ -98,10 +165,49 @@ class RetroArrApiService {
       if (status == 401 || status == 403) {
         throw StateError('RetroArr rejected the API key.');
       }
+      final data = e.response?.data;
+      if (data is Map && data['errorCode'] == 'IGDB_NOT_CONFIGURED') {
+        throw StateError('RetroArr needs IGDB credentials before it can scan. '
+            'Add them in RetroArr under Settings > Metadata Providers.');
+      }
       throw StateError(status == null
           ? 'Could not reach RetroArr. Check the server URL and network.'
           : 'RetroArr returned HTTP $status. Check the server URL and API version.');
     }
+  }
+
+  /// Files RetroArr serves for a game (main files first; cue/bin companions
+  /// are included by the server).
+  Future<List<RetroArrFile>> fetchFiles(int id) async {
+    final data = await get('game/$id/files');
+    if (data is! Map || data['files'] is! List) {
+      throw const FormatException('Expected a RetroArr file list.');
+    }
+    final files = (data['files'] as List)
+        .map((f) => RetroArrFile.fromJson(Map<String, dynamic>.from(f as Map)))
+        .toList();
+    final main = files.where((f) => f.fileType == 'Main').toList();
+    return main.isNotEmpty ? main : files;
+  }
+
+  String downloadUrl(int id, String relativePath) =>
+      Uri.parse(endpoint('game/$id/files/download'))
+          .replace(queryParameters: {'path': relativePath}).toString();
+
+  /// Starts RetroArr's library scan (same call as its "Scan Now" button).
+  /// RetroArr silently ignores this while another scan is running.
+  Future<void> triggerScan() => _request('POST', 'media/scan', body: {});
+
+  Future<RetroArrScanStatus> scanStatus() async {
+    final data = await get('media/scan/status');
+    if (data is! Map) {
+      throw const FormatException('Expected RetroArr scan status.');
+    }
+    return RetroArrScanStatus(
+      isScanning: data['isScanning'] == true,
+      gamesAdded: (data['gamesAddedCount'] as num?)?.toInt() ?? 0,
+      lastGameFound: data['lastGameFound'] as String?,
+    );
   }
 
   Future<List<RetroArrPlatform>> fetchPlatforms() async {

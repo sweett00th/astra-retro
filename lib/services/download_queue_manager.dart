@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/config/app_config.dart';
 import '../models/download_item.dart';
 import '../models/game_item.dart';
@@ -196,9 +197,6 @@ class DownloadQueueManager extends ChangeNotifier {
 
   String addToQueue(GameItem game, SystemModel system, String targetFolder,
       {bool autoExtract = false}) {
-    if (game.isReadOnly) {
-      throw UnsupportedError('RetroArr is read-only in Milestone 1');
-    }
     final id = _generateId(game, system);
 
     final existing = _state.getDownloadById(id);
@@ -332,6 +330,16 @@ class DownloadQueueManager extends ChangeNotifier {
     }
   }
 
+  static Future<bool> _ensureStorageAccess(String folder) async {
+    if (!Platform.isAndroid || !folder.startsWith('/storage/')) return true;
+    try {
+      if (await Permission.manageExternalStorage.isGranted) return true;
+      return (await Permission.manageExternalStorage.request()).isGranted;
+    } catch (e) {
+      debugPrint('DownloadQueue: storage permission check failed: $e');
+      return true; // let the write itself report a real error
+    }
+  }
   Future<void> _startDownload(DownloadItem item) async {
     _updateItem(item.id, status: DownloadStatus.downloading);
     _updateForegroundService();
@@ -352,6 +360,21 @@ class DownloadQueueManager extends ChangeNotifier {
       }
     } catch (e) {
       debugPrint('DownloadQueue: exists check failed (proceeding): $e');
+    }
+
+    // Shared-storage library folders need "All files access". Sources set up
+    // without the folder picker (RetroArr onboarding) never asked for it.
+    if (!await _ensureStorageAccess(item.targetFolder)) {
+      if (_disposed) return;
+      _updateItem(
+        item.id,
+        status: DownloadStatus.error,
+        error: 'Allow "All files access" for R-Shop to save games to '
+            '${item.targetFolder}, then retry',
+      );
+      _stopForegroundServiceIfIdle();
+      _processQueue();
+      return;
     }
 
     // Check disk space before starting actual download

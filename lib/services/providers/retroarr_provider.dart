@@ -59,9 +59,18 @@ class RetroArrProvider implements SourceProvider {
     final cached = await _loadMetadata(system.id);
     final games = <GameItem>[];
     final metadata = <GameMetadataInfo>[];
+    final seen = <String>{};
     for (final row in rows) {
       final id = (row['id'] as num).toInt();
-      final filename = '${config.sourceId ?? 'retroarr'}-$id';
+      // Use the real file (or folder) name so downloads, installed state and
+      // the local-folder merge all line up with R-Shop's filename identity.
+      // Entries without files on the server cannot be downloaded; skip them.
+      final filename = fileNameFromPath(row['path'] as String?);
+      if (filename == null ||
+          row['missingSince'] != null ||
+          !seen.add(filename)) {
+        continue;
+      }
       games.add(GameItem(
           filename: filename,
           displayName: row['title'] as String,
@@ -86,12 +95,57 @@ class RetroArrProvider implements SourceProvider {
     return games;
   }
 
+  /// Last segment of a server path ("/media/n64/Game.z64" -> "Game.z64").
+  static String? fileNameFromPath(String? path) {
+    final parts = (path ?? '')
+        .split(RegExp(r'[\\/]'))
+        .where((s) => s.trim().isNotEmpty && s != '.' && s != '..');
+    return parts.isEmpty ? null : parts.last;
+  }
+
+  static int gameId(GameItem game) =>
+      int.parse(Uri.parse(game.url).pathSegments.last);
+
   @override
-  Future<DownloadHandle> resolveDownload(GameItem game) =>
-      Future.error(UnsupportedError('RetroArr is read-only in Milestone 1'));
+  Future<DownloadHandle> resolveDownload(GameItem game) async {
+    final id = gameId(game);
+    final files = await _api.fetchFiles(id);
+    if (files.isEmpty) {
+      throw StateError('RetroArr has no files for "${game.displayName}". '
+          'Rescan the library in RetroArr and sync again.');
+    }
+    final headers = await _api.authHeaders();
+    final single = files.length == 1 &&
+        files.single.relativePath.split('/').last == game.filename;
+    if (single) {
+      return HttpDownloadHandle(
+        url: _api.downloadUrl(id, files.single.relativePath),
+        headers: headers,
+        followRedirects: false,
+        expectedBytes: files.single.size,
+      );
+    }
+    // A file-based game with companions (.cue + .bin) goes straight into the
+    // system folder; a folder-based game keeps its own folder.
+    final fileBased = files.any((f) => f.relativePath == game.filename) &&
+        files.every((f) => !f.relativePath.contains('/'));
+    return HttpFolderDownloadHandle(
+      files: [
+        for (final f in files)
+          HttpFolderFile(
+              relativePath: f.relativePath,
+              url: _api.downloadUrl(id, f.relativePath),
+              size: f.size),
+      ],
+      headers: headers,
+      subfolder: fileBased ? null : game.filename,
+      followRedirects: false,
+      resumeKey: '${config.sourceId ?? 'retroarr'}_$id',
+    );
+  }
 
   Future<GameMetadataInfo> fetchDetails(GameItem game, String systemId) async {
-    final id = int.parse(Uri.parse(game.url).pathSegments.last);
+    final id = gameId(game);
     final row = await _api.fetchDetails(id);
     final info = GameMetadataInfo(
         filename: game.filename,

@@ -1,6 +1,6 @@
-# RetroArr browsing (Milestone 1)
+# RetroArr browsing and downloads (Milestones 1-2)
 
-RetroArr is a read-only source. Add it from onboarding's **Add server** flow or
+Add a RetroArr source from onboarding's **Add server** flow or
 **Settings → Sources → Add → RetroArr**. Enter the server root URL (including
 any reverse-proxy base path) and API key, then select **Test Connection**.
 The form lists enabled server platforms and reports how many R-Shop can map.
@@ -10,9 +10,11 @@ The usual library refresh fetches the catalog again.
 HTTP LAN URLs and HTTPS URLs are supported. Do not append `/api/v3` to the URL.
 The key is stored with `flutter_secure_storage`, keyed by source ID; it is not
 written into source JSON, game URLs, artwork URLs, or exported config. Removing
-the source removes its secure key. To change the URL/key or rediscover platforms
-in this first slice, remove and add the source again. Exported sources require
-credentials to be entered again on another device.
+the source removes its secure key. Newly enabled RetroArr platforms are picked up
+at app start and after a library scan. To change the URL or key, remove and add
+the source again. Exported sources require credentials to be entered again on
+another device. The key must use the same secure-storage options as the rest of
+the app (encrypted shared preferences); mixing modes hides the stored key.
 
 ## Verified contract in the checked-out RetroArr code
 
@@ -40,11 +42,32 @@ credentials to be entered again on another device.
 per-system providers. Platform matching reuses the established slug/folder/IGDB
 matcher. Unmatched platforms are not added as unsupported R-Shop consoles.
 
-Catalog IDs, prefixed by source ID, provide stable cache identities; they are
-not ROM filenames or Android paths. Games and metadata use existing SQLite
-storage. Server download/install state is not mapped to local installation.
-The detail screen labels RetroArr games read-only, and both the queue boundary
-and provider download method reject downloads. No emulator launching is added.
+Each game uses the file or folder name from RetroArr's path (for example
+Game (USA).z64), so downloads, installed state, deletion and the merge with
+local files use R-Shop's normal filename identity. Catalog entries without files
+on the server (wanted-only or missing) are not listed. No emulator launching is added.
+
+## Downloads (Milestone 2)
+
+GET /api/v3/game/{id}/files lists a game's files (cue/bin companions included;
+patches and DLC are skipped) and /files/download?path= serves each with HTTP
+Range support. A single file uses the existing HTTP downloader with resume. Several
+files use a multi-file handle: each file resumes independently in a stable temp
+folder that survives a failed attempt (cancel discards it), then files are moved
+into place with the crash-safe staging move. A file-based set (.cue + .bin)
+lands directly in the system folder; a folder-based game keeps its folder.
+Downloads go to the configured LAN URL with the key in a header and refuse
+redirects. The free-space check covers the game plus its temporary copy. Library
+folders in shared storage need Android's "All files access", which the queue
+requests before the first download.
+
+## Library scan
+
+**Scan RetroArr library** (home quick menu, or the source's actions in
+Settings → Sources) calls POST /api/v3/media/scan, follows
+/media/scan/status, refreshes platforms, then syncs the source's systems.
+RetroArr requires IGDB credentials to scan and ignores a request while a scan is
+running; the app then follows the running scan.
 
 Authenticated API requests and artwork requests refuse redirects. For a reverse
 proxy, configure its final URL. The existing cover cache service injects a key

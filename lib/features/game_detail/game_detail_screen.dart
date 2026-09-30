@@ -115,7 +115,7 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
     _debouncer = ref.read(inputDebouncerProvider);
     final queueManager = ref.read(downloadQueueManagerProvider);
     _initController(queueManager);
-    if (widget.game.isReadOnly) _loadRetroArrDetails();
+    if (widget.game.isRetroArr) _loadRetroArrDetails();
   }
 
   Future<void> _loadRetroArrDetails() async {
@@ -1279,12 +1279,6 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
     bool isMultiRom, {
     required bool isFocused,
   }) {
-    if (controller.selectedVariant.isReadOnly) {
-      return const Padding(
-          padding: EdgeInsets.all(16),
-          child: Text('Remote library · Read-only',
-              style: TextStyle(color: Colors.white70)));
-    }
     final baseState = _getDownloadButtonState(state, isMultiRom);
     var buttonState = baseState;
     var progress = 0.0;

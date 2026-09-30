@@ -470,7 +470,7 @@ class _ManualSourceAddScreenState
                         const SizedBox(height: 4),
                         Text(
                           _isRetroArr
-                              ? 'Read-only library browsing. Test the connection to discover systems.'
+                              ? 'Browse and download your RetroArr library. Test the connection to discover systems.'
                               : 'Connection only — map systems to remote folders '
                                   'after saving from the source actions menu.',
                           style: TextStyle(
