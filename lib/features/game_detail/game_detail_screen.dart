@@ -27,7 +27,7 @@ import '../../services/input_debouncer.dart';
 import '../../services/rom_manager.dart';
 import '../../utils/friendly_error.dart';
 import '../emulators/emulator_picker_screen.dart';
-import '../emulators/retroarch_core_screen.dart';
+import '../emulators/emulator_steps_screen.dart';
 import '../../utils/game_metadata.dart';
 import '../../utils/rom_share_helper.dart';
 import '../../utils/image_helper.dart';
@@ -356,11 +356,59 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
   void _primaryAction() {
     final controller = _controller;
     if (controller == null) return;
-    if (controller.variants.length == 1 && controller.state.isVariantInstalled) {
+    // Any installed version plays; the version picker moves to the Start menu.
+    final installed = _installedVariantIndex(controller);
+    if (installed != null) {
+      if (!controller.state.isVariantInstalled) controller.selectVariant(installed);
       _play(controller);
       return;
     }
     controller.performAction();
+  }
+
+  int? _installedVariantIndex(GameDetailController controller) {
+    final status = controller.state.installedStatus;
+    for (var i = 0; i < controller.variants.length; i++) {
+      if (status[i] == true) return i;
+    }
+    return null;
+  }
+
+  /// Emulators keep per-game settings screens private, so open the emulator
+  /// and explain where the game's settings, cheats and patches are.
+  Future<void> _openGameSettings(GameDetailController controller) async {
+    final system = controller.system;
+    final prefs = EmulatorPreferences(await SharedPreferences.getInstance());
+    final service = EmulatorService();
+    final option = await service.resolve(
+        system.id, controller.selectedVariant.filename, prefs);
+    if (!mounted) return;
+    final steps = option.definition.settingsSteps;
+    if (!option.installed || option.package == null || steps.isEmpty) {
+      showErrorNotification(context, ref,
+          message: 'Pick an installed emulator for this game first '
+              '(Emulator button next to Favorite).');
+      return;
+    }
+    final open = await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => EmulatorStepsScreen(
+        title: 'Game settings in ${option.name}',
+        intro: '${option.name} keeps per-game settings inside the app. '
+            'Here is where to find them for ${controller.cleanTitle}:',
+        steps: steps,
+        confirmLabel: 'Open ${option.name}',
+      ),
+    ));
+    if (open != true) return;
+    try {
+      await const MethodChannel('com.retro.rshop/launcher')
+          .invokeMethod('openApp', {'package': option.package});
+    } on PlatformException catch (e) {
+      if (mounted) {
+        showErrorNotification(context, ref,
+            message: 'Could not open ${option.name}: ${e.message}');
+      }
+    }
   }
 
   Future<void> _play(GameDetailController controller) async {
@@ -382,9 +430,18 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
       if (option.id == 'retroarch' && core != null && !prefs.coreConfirmed(core)) {
         if (!mounted) return;
         final ready = await Navigator.of(context).push<bool>(MaterialPageRoute(
-          builder: (_) => RetroArchCoreScreen(
-              coreName: retroArchCoreNames[core] ?? core,
-              systemName: system.name),
+          builder: (_) => EmulatorStepsScreen(
+            title: 'RetroArch needs a ${system.name} core',
+            intro: 'RetroArch crashes if the core is missing, and R-Shop '
+                'cannot check its cores. You only need to do this once.',
+            steps: [
+              'Open RetroArch.',
+              'Main Menu > Online Updater > Core Downloader.',
+              'Download "${retroArchCoreNames[core] ?? core}".',
+              'Come back here and press A.',
+            ],
+            confirmLabel: 'I have the core - Play',
+          ),
         ));
         if (ready != true) return;
         await prefs.setCoreConfirmed(core);
@@ -622,6 +679,18 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
           label: L.of(context).gameDetail_achievements,
           icon: Icons.emoji_events_rounded,
           onSelect: () => _navigateToAchievements(raMatch),
+        ),
+      if (_installedVariantIndex(controller) != null)
+        QuickMenuItem(
+          label: 'Game settings (emulator)',
+          icon: Icons.tune_rounded,
+          onSelect: () => _openGameSettings(controller),
+        ),
+      if (controller.variants.length > 1)
+        QuickMenuItem(
+          label: 'Versions…',
+          icon: Icons.layers_rounded,
+          onSelect: controller.openVariantPicker,
         ),
       QuickMenuItem(
         label: controller.state.showFullFilename ? L.of(context).gameDetail_showTitle : L.of(context).gameDetail_showFilename,
@@ -1465,6 +1534,9 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
       return DownloadButtonState.unavailable;
     }
     if (isMultiRom) {
+      if (state.installedStatus.values.any((v) => v)) {
+        return DownloadButtonState.play;
+      }
       final allInstalled =
           state.installedStatus.length == widget.variants.length &&
               state.installedStatus.values.every((v) => v);

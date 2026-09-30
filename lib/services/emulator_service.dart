@@ -81,6 +81,13 @@ const builtInEmulators = <EmulatorDefinition>[
     systems: [..._retroArchSystems],
     cores: _retroArchCores,
     homepage: 'https://www.retroarch.com/?page=platforms',
+    verified: true,
+    settingsSteps: [
+      'Start the game from R-Shop.',
+      'Open RetroArch'
+          's Quick Menu (its menu button combo, often Select + Start).',
+      'Core Options, Shaders or Cheats change the game; Manage Core Options > Save Game Options keeps them for this game only.',
+    ],
   ),
   EmulatorDefinition(
     id: 'dolphin',
@@ -95,6 +102,12 @@ const builtInEmulators = <EmulatorDefinition>[
     ],
     systems: ['gc', 'wii'],
     homepage: 'https://dolphin-emu.org/download/',
+    verified: true,
+    settingsSteps: [
+      'First time only: in Dolphin, Config > Paths > add your ROMs/gc folder so the game appears in its list.',
+      'Long-press the game > Properties.',
+      'Edit Game Settings for graphics (Widescreen Hack is under Graphics > Enhancements); Edit Cheats for patches and Gecko codes.',
+    ],
   ),
   EmulatorDefinition(
     id: 'ppsspp',
@@ -104,6 +117,10 @@ const builtInEmulators = <EmulatorDefinition>[
     romAsData: true,
     systems: ['psp'],
     homepage: 'https://www.ppsspp.org/download/',
+    settingsSteps: [
+      'First time only: in PPSSPP, browse to your ROMs/psp folder.',
+      'Long-press (or select and hold) the game > Game settings.',
+    ],
   ),
   EmulatorDefinition(
     id: 'duckstation',
@@ -162,6 +179,9 @@ const builtInEmulators = <EmulatorDefinition>[
     systems: ['psvita'],
     launchesFiles: false,
     homepage: 'https://vita3k.org/',
+    settingsSteps: [
+      'Select the game in Vita3K and open its Custom Config (per-game settings).',
+    ],
   ),
   // ScummVM keeps its own game list; R-Shop opens it until direct per-game
   // launch is verified against the installed app.
@@ -172,6 +192,11 @@ const builtInEmulators = <EmulatorDefinition>[
     systems: ['scummvm'],
     launchesFiles: false,
     homepage: 'https://www.scummvm.org/downloads/',
+    settingsSteps: [
+      'First time only: Add Game and pick the game'
+          's folder under ROMs/scummvm.',
+      'Select the game > Game Options for graphics, audio and controls.',
+    ],
   ),
   EmulatorDefinition(
     id: 'rpcs3',

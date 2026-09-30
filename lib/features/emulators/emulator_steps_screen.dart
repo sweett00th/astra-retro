@@ -5,35 +5,42 @@ import '../../core/theme/app_theme.dart';
 import '../../core/widgets/console_focusable.dart';
 import '../../widgets/console_hud.dart';
 
-/// Shown before the first RetroArch launch of a core. RetroArch crashes when
-/// asked to load a core that is not downloaded, and R-Shop cannot see its
-/// cores, so the user confirms once. Pops true to launch.
-class RetroArchCoreScreen extends StatefulWidget {
-  const RetroArchCoreScreen(
-      {super.key, required this.coreName, required this.systemName});
+/// Short numbered instructions with one confirm action. Used where R-Shop
+/// cannot do something inside an emulator itself (download a RetroArch
+/// core, open a game's settings). Pops true when confirmed.
+class EmulatorStepsScreen extends StatefulWidget {
+  const EmulatorStepsScreen({
+    super.key,
+    required this.title,
+    required this.steps,
+    required this.confirmLabel,
+    this.intro,
+  });
 
-  final String coreName;
-  final String systemName;
+  final String title;
+  final String? intro;
+  final List<String> steps;
+  final String confirmLabel;
 
   @override
-  State<RetroArchCoreScreen> createState() => _RetroArchCoreScreenState();
+  State<EmulatorStepsScreen> createState() => _EmulatorStepsScreenState();
 }
 
-class _RetroArchCoreScreenState extends State<RetroArchCoreScreen> {
-  final _screenFocus = FocusNode(debugLabel: 'retroarch_core');
-  final _launchFocus = FocusNode(debugLabel: 'retroarch_core_launch');
+class _EmulatorStepsScreenState extends State<EmulatorStepsScreen> {
+  final _screenFocus = FocusNode(debugLabel: 'emulator_steps');
+  final _confirmFocus = FocusNode(debugLabel: 'emulator_steps_confirm');
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance
-        .addPostFrameCallback((_) => _launchFocus.requestFocus());
+        .addPostFrameCallback((_) => _confirmFocus.requestFocus());
   }
 
   @override
   void dispose() {
     _screenFocus.dispose();
-    _launchFocus.dispose();
+    _confirmFocus.dispose();
     super.dispose();
   }
 
@@ -51,12 +58,6 @@ class _RetroArchCoreScreenState extends State<RetroArchCoreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final steps = [
-      'Open RetroArch.',
-      'Main Menu > Online Updater > Core Downloader.',
-      'Download "${widget.coreName}".',
-      'Come back here and press A.',
-    ];
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       body: Stack(
@@ -74,29 +75,28 @@ class _RetroArchCoreScreenState extends State<RetroArchCoreScreen> {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('RetroArch needs a ${widget.systemName} core',
+                        Text(widget.title,
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 22,
                                 fontWeight: FontWeight.w600)),
-                        const SizedBox(height: 8),
-                        Text(
-                            'RetroArch crashes if the core is missing, and '
-                            'R-Shop cannot check its cores for you. You only '
-                            'need to do this once per core.',
-                            style: TextStyle(
-                                color: Colors.grey.shade400, fontSize: 14)),
+                        if (widget.intro != null) ...[
+                          const SizedBox(height: 8),
+                          Text(widget.intro!,
+                              style: TextStyle(
+                                  color: Colors.grey.shade400, fontSize: 14)),
+                        ],
                         const SizedBox(height: 16),
-                        for (var i = 0; i < steps.length; i++)
+                        for (var i = 0; i < widget.steps.length; i++)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 6),
-                            child: Text('${i + 1}. ${steps[i]}',
+                            child: Text('${i + 1}. ${widget.steps[i]}',
                                 style: const TextStyle(
                                     color: Colors.white, fontSize: 15)),
                           ),
                         const SizedBox(height: 24),
                         ConsoleFocusable(
-                          focusNode: _launchFocus,
+                          focusNode: _confirmFocus,
                           focusScale: 1.0,
                           onSelect: () => Navigator.of(context).pop(true),
                           child: Container(
@@ -109,8 +109,8 @@ class _RetroArchCoreScreenState extends State<RetroArchCoreScreen> {
                               border: Border.all(
                                   color: Colors.greenAccent, width: 2),
                             ),
-                            child: const Text('I have the core - Play',
-                                style: TextStyle(
+                            child: Text(widget.confirmLabel,
+                                style: const TextStyle(
                                     color: Colors.greenAccent,
                                     fontSize: 15,
                                     fontWeight: FontWeight.w600)),
@@ -124,9 +124,9 @@ class _RetroArchCoreScreenState extends State<RetroArchCoreScreen> {
             ),
           ),
           ConsoleHud(
-            a: HudAction('Play', onTap: () => Navigator.of(context).pop(true)),
-            b: HudAction('Cancel',
-                onTap: () => Navigator.of(context).pop(false)),
+            a: HudAction(widget.confirmLabel,
+                onTap: () => Navigator.of(context).pop(true)),
+            b: HudAction('Back', onTap: () => Navigator.of(context).pop(false)),
           ),
         ],
       ),

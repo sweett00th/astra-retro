@@ -46,6 +46,11 @@ class EmulatorDefinition {
   /// Official download page, offered when the emulator is not installed.
   final String? homepage;
 
+  /// How to reach a game's settings (cheats, patches, per-game options)
+  /// inside the emulator. Emulators keep those screens private, so R-Shop
+  /// opens the emulator and shows these steps.
+  final List<String> settingsSteps;
+
   const EmulatorDefinition({
     required this.id,
     required this.name,
@@ -59,6 +64,7 @@ class EmulatorDefinition {
     this.launchesFiles = true,
     this.verified = false,
     this.homepage,
+    this.settingsSteps = const [],
   });
 
   bool supports(String systemId) =>
