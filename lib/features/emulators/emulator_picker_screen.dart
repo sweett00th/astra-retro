@@ -26,6 +26,7 @@ class EmulatorPickerScreen extends StatefulWidget {
     this.currentId,
     this.systemDefaultId,
     this.service,
+    this.systemMode = false,
   });
 
   final String systemId;
@@ -34,6 +35,10 @@ class EmulatorPickerScreen extends StatefulWidget {
   final String? currentId;
   final String? systemDefaultId;
   final EmulatorService? service;
+
+  /// Choosing the default for the whole system (Settings > Emulators):
+  /// A sets the system default and row 0 means automatic.
+  final bool systemMode;
 
   @override
   State<EmulatorPickerScreen> createState() => _EmulatorPickerScreenState();
@@ -78,7 +83,8 @@ class _EmulatorPickerScreenState extends State<EmulatorPickerScreen> {
 
   void _pick(int index, {bool forSystem = false}) {
     final id = _idAt(index);
-    if (forSystem && id == null) return;
+    if (widget.systemMode) forSystem = true;
+    if (forSystem && id == null && !widget.systemMode) return;
     Navigator.of(context).pop(EmulatorChoice(id, forWholeSystem: forSystem));
   }
 
@@ -198,14 +204,21 @@ class _EmulatorPickerScreenState extends State<EmulatorPickerScreen> {
                                       fontWeight: FontWeight.w600)),
                               const SizedBox(height: 4),
                               Text(
-                                  'A: use for this game   Y: use for all ${widget.systemName} games',
+                                  widget.systemMode
+                                      ? 'A: use for every ${widget.systemName} game'
+                                      : 'A: use for this game   Y: use for all ${widget.systemName} games',
                                   style: TextStyle(
                                       color: Colors.grey.shade500,
                                       fontSize: 12)),
                               const SizedBox(height: 16),
-                              _row(0, '${widget.systemName} default',
-                                  'Currently: $defaultName',
-                                  selected: widget.currentId == null),
+                              if (widget.systemMode)
+                                _row(0, 'Automatic',
+                                    'First installed emulator for ${widget.systemName}',
+                                    selected: widget.currentId == null)
+                              else
+                                _row(0, '${widget.systemName} default',
+                                    'Currently: $defaultName',
+                                    selected: widget.currentId == null),
                               for (var i = 0; i < options.length; i++)
                                 _row(
                                   i + 1,
@@ -231,8 +244,10 @@ class _EmulatorPickerScreenState extends State<EmulatorPickerScreen> {
           ConsoleHud(
             b: HudAction('Back', onTap: () => Navigator.maybePop(context)),
             x: HudAction('Get emulator', onTap: () => _openHomepage(_focused)),
-            y: HudAction('All ${widget.systemName}',
-                onTap: () => _pick(_focused, forSystem: true)),
+            y: widget.systemMode
+                ? null
+                : HudAction('All ${widget.systemName}',
+                    onTap: () => _pick(_focused, forSystem: true)),
           ),
         ],
       ),

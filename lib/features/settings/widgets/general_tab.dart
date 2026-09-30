@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../providers/app_providers.dart';
 import '../../onboarding/widgets/ra_onboarding_screen.dart';
+import '../../emulators/emulator_settings_screen.dart';
 import '../config_mode_screen.dart';
 import '../models/settings_entry.dart';
 import '../sources_screen.dart';
@@ -54,6 +55,13 @@ class SettingsGeneralTab extends ConsumerWidget {
             subtitle: l.settings_consoleSettingsSubtitle,
             onSelect: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const ConfigModeScreen())),
+          ),
+          SettingsEntry.nav(
+            icon: Icons.sports_esports_outlined,
+            title: 'Emulators',
+            subtitle: 'Default emulator for each system',
+            onSelect: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const EmulatorSettingsScreen())),
           ),
           SettingsEntry.nav(
             icon: Icons.emoji_events_outlined,
