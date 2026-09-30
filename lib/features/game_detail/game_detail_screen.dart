@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/input/input.dart';
 import '../../l10n/app_localizations.dart';
@@ -21,7 +22,11 @@ import '../../providers/rom_status_providers.dart';
 import '../../providers/game_providers.dart';
 import '../../providers/shelf_providers.dart';
 import '../../services/download_queue_manager.dart';
+import '../../services/emulator_service.dart';
 import '../../services/input_debouncer.dart';
+import '../../services/rom_manager.dart';
+import '../../utils/friendly_error.dart';
+import '../emulators/emulator_picker_screen.dart';
 import '../../utils/game_metadata.dart';
 import '../../utils/rom_share_helper.dart';
 import '../../utils/image_helper.dart';
@@ -259,7 +264,7 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
           controller.selectVariant(idx);
         }
       case DetailSection.primaryAction:
-        controller.performAction();
+        _primaryAction();
       case DetailSection.actions:
         _handleActionButtonConfirm(controller);
       case DetailSection.achievements:
@@ -338,6 +343,76 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
         _handleShare();
       case 2:
         _handleCollection(controller);
+      case 3:
+        _pickEmulator(controller);
+      case 4:
+        controller.showDeleteDialog();
+    }
+  }
+
+  /// Installed single-file games play; everything else keeps the existing
+  /// download / version-picker behaviour.
+  void _primaryAction() {
+    final controller = _controller;
+    if (controller == null) return;
+    if (controller.variants.length == 1 && controller.state.isVariantInstalled) {
+      _play(controller);
+      return;
+    }
+    controller.performAction();
+  }
+
+  Future<void> _play(GameDetailController controller) async {
+    final game = controller.selectedVariant;
+    final system = controller.system;
+    final path = await RomManager.resolveInstalledPath(
+        game, system, controller.targetFolder);
+    if (!mounted) return;
+    if (path == null) {
+      showErrorNotification(context, ref,
+          message: 'Game file not found in ${controller.targetFolder}');
+      return;
+    }
+    try {
+      final prefs = EmulatorPreferences(await SharedPreferences.getInstance());
+      final service = EmulatorService();
+      final option = await service.resolve(system.id, game.filename, prefs);
+      await service.launch(option, path, system.id);
+    } catch (e) {
+      if (mounted) {
+        showErrorNotification(context, ref, message: getUserFriendlyError(e));
+      }
+    }
+  }
+
+  Future<void> _pickEmulator(GameDetailController controller) async {
+    final prefs = EmulatorPreferences(await SharedPreferences.getInstance());
+    if (!mounted) return;
+    final game = controller.selectedVariant;
+    final system = controller.system;
+    final choice = await Navigator.of(context).push<EmulatorChoice>(
+      MaterialPageRoute(
+        builder: (_) => EmulatorPickerScreen(
+          systemId: system.id,
+          systemName: system.name,
+          title: 'Emulator for ${controller.cleanTitle}',
+          currentId: prefs.gameOverride(system.id, game.filename),
+          systemDefaultId: prefs.systemDefault(system.id),
+        ),
+      ),
+    );
+    if (choice == null) return;
+    if (choice.forWholeSystem) {
+      await prefs.setSystemDefault(system.id, choice.emulatorId);
+      await prefs.setGameOverride(system.id, game.filename, null);
+    } else {
+      await prefs.setGameOverride(system.id, game.filename, choice.emulatorId);
+    }
+    if (mounted) {
+      showSuccessNotification(context, ref,
+          message: choice.forWholeSystem
+              ? 'Default emulator for ${system.name} saved'
+              : 'Emulator for this game saved');
     }
   }
 
@@ -720,6 +795,7 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
     final disabledButtons = <int>{
       if (!isShareable) 1,  // Share button index
       if (!hasShelves) 2,    // Collection button index
+      if (!state.isVariantInstalled || controller.variants.length > 1) 4, // Delete
     };
 
     controller.clampHorizontalIndices(
@@ -1157,6 +1233,10 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
             aHint = 'Share';
           case 2:
             aHint = l.gameDetail_addToShelf;
+          case 3:
+            aHint = 'Emulator';
+          case 4:
+            aHint = l.gameDetail_delete;
           default:
             aHint = l.common_select;
         }
@@ -1325,7 +1405,7 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
       downloadButtonState: buttonState,
       downloadProgress: progress,
       variantCount: isMultiRom ? widget.variants.length : null,
-      onPrimaryAction: controller.performAction,
+      onPrimaryAction: _primaryAction,
       hintText: _getButtonHintText(state, isMultiRom),
       isSectionFocused: isFocused,
     );
@@ -1352,6 +1432,10 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
       onFavorite: _handleFavorite,
       onShare: _handleShare,
       onCollection: () => _handleCollection(controller),
+      onEmulator: () => _pickEmulator(controller),
+      onDelete: controller.showDeleteDialog,
+      isDeleteEnabled:
+          state.isVariantInstalled && controller.variants.length == 1,
     );
   }
 
@@ -1376,7 +1460,7 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
           ? DownloadButtonState.installed
           : DownloadButtonState.download;
     }
-    if (state.isVariantInstalled) return DownloadButtonState.delete;
+    if (state.isVariantInstalled) return DownloadButtonState.play;
     return DownloadButtonState.download;
   }
 

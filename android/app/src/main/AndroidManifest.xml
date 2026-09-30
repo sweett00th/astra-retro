@@ -52,9 +52,30 @@
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="dataSync"
             android:exported="false" />
+
+        <!-- Shares downloaded ROMs with emulators (see EmulatorLauncher.kt). -->
+        <provider
+            android:name=".RomFileProvider"
+            android:authorities="${applicationId}.roms"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/rom_paths" />
+        </provider>
         </application>
 
         <queries>
+            <!-- Emulator detection and launch: installed apps with a launcher
+                 entry or that open files. -->
+            <intent>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent>
+            <intent>
+                <action android:name="android.intent.action.VIEW"/>
+                <data android:mimeType="*/*"/>
+            </intent>
             <intent>
                 <action android:name="android.intent.action.PROCESS_TEXT"/>
                 <data android:mimeType="text/plain"/>

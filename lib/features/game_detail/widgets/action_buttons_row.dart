@@ -9,7 +9,8 @@ import 'download_action_button.dart';
 /// 1. [ActionButtonsRow.primaryOnly] — Download / Manage / Delete button
 /// 2. [ActionButtonsRow.iconsOnly] — Favorite / Share / Shelf icon buttons
 ///
-/// Icon button navigation indices: 0 = favorite, 1 = share, 2 = collection
+/// Icon button navigation indices: 0 = favorite, 1 = share, 2 = collection,
+/// 3 = emulator choice, 4 = delete
 class ActionButtonsRow extends StatelessWidget {
   // Primary-only fields
   final DownloadButtonState? downloadButtonState;
@@ -24,12 +25,15 @@ class ActionButtonsRow extends StatelessWidget {
   final VoidCallback? onFavorite;
   final VoidCallback? onShare;
   final VoidCallback? onCollection;
+  final VoidCallback? onEmulator;
+  final VoidCallback? onDelete;
+  final bool? isDeleteEnabled;
 
   final Color accentColor;
   final _Mode _mode;
 
   /// Total navigable items in the icon buttons section.
-  static const int itemCount = 3;
+  static const int itemCount = 5;
 
   // Primary-only: whether the section is focused
   final bool isSectionFocused;
@@ -54,7 +58,10 @@ class ActionButtonsRow extends StatelessWidget {
         focusedButtonIndex = null,
         onFavorite = null,
         onShare = null,
-        onCollection = null;
+        onCollection = null,
+        onEmulator = null,
+        onDelete = null,
+        isDeleteEnabled = null;
 
   /// Whether the collection/shelf button is enabled.
   final bool? isCollectionEnabled;
@@ -71,6 +78,9 @@ class ActionButtonsRow extends StatelessWidget {
     required this.onFavorite,
     required this.onShare,
     required this.onCollection,
+    required this.onEmulator,
+    required this.onDelete,
+    this.isDeleteEnabled = false,
   })  : _mode = _Mode.icons,
         downloadButtonState = null,
         variantCount = null,
@@ -157,6 +167,31 @@ class ActionButtonsRow extends StatelessWidget {
             onTap: onCollection!,
           ),
         ),
+        SizedBox(width: rs.spacing.xs),
+        // Emulator used to play this game
+        Expanded(
+          child: _IconActionButton(
+            icon: Icons.sports_esports_rounded,
+            color: Colors.white54,
+            isFocused: isSectionFocused && focusedButtonIndex == 3,
+            accentColor: accentColor,
+            onTap: onEmulator!,
+          ),
+        ),
+        SizedBox(width: rs.spacing.xs),
+        // Delete - installed games only, since Play took the primary button
+        Expanded(
+          child: _IconActionButton(
+            icon: Icons.delete_outline_rounded,
+            color: (isDeleteEnabled ?? false) ? Colors.redAccent : Colors.white12,
+            isFocused: (isDeleteEnabled ?? false) &&
+                isSectionFocused &&
+                focusedButtonIndex == 4,
+            accentColor: accentColor,
+            enabled: isDeleteEnabled ?? false,
+            onTap: onDelete!,
+          ),
+        ),
       ],
     );
   }
@@ -201,6 +236,13 @@ class _PrimaryActionButton extends StatelessWidget {
         textColor = accentColor.forText;
         icon = Icons.download_rounded;
         label = isMulti ? l.gameDetail_manageFiles : l.gameDetail_download;
+        showProgressFill = false;
+      case DownloadButtonState.play:
+        bgColor = Colors.green.withValues(alpha: isFocused ? 0.28 : 0.16);
+        borderColor = Colors.greenAccent.withValues(alpha: isFocused ? 0.7 : 0.4);
+        textColor = Colors.greenAccent;
+        icon = Icons.play_arrow_rounded;
+        label = 'Play';
         showProgressFill = false;
       case DownloadButtonState.adding:
         bgColor = accentColor.withValues(alpha: 0.1);

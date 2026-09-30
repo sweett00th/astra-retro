@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ROM locations RomFileProvider may share with emulators. -->
+<paths>
+    <external-path name="external" path="." />
+    <!-- SD cards and other volumes under /storage -->
+    <root-path name="storage" path="storage" />
+</paths>
