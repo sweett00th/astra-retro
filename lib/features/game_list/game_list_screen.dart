@@ -541,7 +541,23 @@ class _GameListScreenState extends ConsumerState<GameListScreen>
       return KeyEventResult.ignored;
     }
 
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.gameButtonX &&
+        !_isFiltering &&
+        !isSearchActive &&
+        !showQuickMenu) {
+      _toggleReadyToPlay();
+      return KeyEventResult.handled;
+    }
+
     return KeyEventResult.ignored;
+  }
+
+  /// X: switch between all games and installed ("ready to play") games.
+  void _toggleReadyToPlay() {
+    _controller.toggleLocalFilter();
+    _resetFocusAfterFilterChange();
+    setState(() {});
   }
 
   @override
@@ -611,6 +627,9 @@ class _GameListScreenState extends ConsumerState<GameListScreen>
                 ConsoleHud(
                   a: HudAction(L.of(context).common_select, onTap: _openSelectedGame),
                   b: HudAction(L.of(context).common_back, onTap: () => Navigator.pop(context)),
+                  x: HudAction(
+                      state.activeFilters.localOnly ? 'All games' : 'Ready to play',
+                      onTap: _toggleReadyToPlay),
                   start: HudAction(L.of(context).common_menu, onTap: () {
                     _dismissStartHint();
                     toggleQuickMenu();

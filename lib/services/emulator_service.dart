@@ -14,7 +14,8 @@ const _retroArchCores = {
   'gba': 'mgba',
   'nds': 'melonds',
   'virtualboy': 'mednafen_vb',
-  'psx': 'swanstation',
+  // Widely available on Android and runs without a BIOS file.
+  'psx': 'pcsx_rearmed',
   'psp': 'ppsspp',
   'mastersystem': 'genesis_plus_gx',
   'megadrive': 'genesis_plus_gx',
@@ -33,6 +34,31 @@ const _retroArchCores = {
   'lynx': 'handy',
   'arcade': 'fbneo',
   'neogeocd': 'neocd',
+};
+
+/// Names shown in RetroArch's Online Updater > Core Downloader.
+const retroArchCoreNames = {
+  'fceumm': 'Nintendo - NES / Famicom (FCEUmm)',
+  'snes9x': 'Nintendo - SNES / SFC (Snes9x - Current)',
+  'mupen64plus_next_gles3': 'Nintendo - Nintendo 64 (Mupen64Plus-Next)',
+  'gambatte': 'Nintendo - Game Boy / Color (Gambatte)',
+  'mgba': 'Nintendo - Game Boy Advance (mGBA)',
+  'melonds': 'Nintendo - DS (melonDS)',
+  'mednafen_vb': 'Nintendo - Virtual Boy (Beetle VB)',
+  'pcsx_rearmed': 'Sony - PlayStation (PCSX ReARMed)',
+  'ppsspp': 'Sony - PlayStation Portable (PPSSPP)',
+  'genesis_plus_gx': 'Sega - MS/GG/MD/CD (Genesis Plus GX)',
+  'picodrive': 'Sega - MS/GG/MD/CD/32X (PicoDrive)',
+  'yabasanshiro': 'Sega - Saturn (YabaSanshiro)',
+  'flycast': 'Sega - Dreamcast/NAOMI (Flycast)',
+  'mednafen_pce_fast': 'NEC - PC Engine / CD (Beetle PCE FAST)',
+  'mednafen_ngp': 'SNK - Neo Geo Pocket / Color (Beetle NeoPop)',
+  'mednafen_wswan': 'Bandai - WonderSwan / Color (Beetle Cygne)',
+  'stella': 'Atari - 2600 (Stella)',
+  'prosystem': 'Atari - 7800 (ProSystem)',
+  'handy': 'Atari - Lynx (Handy)',
+  'fbneo': 'Arcade (FinalBurn Neo)',
+  'neocd': 'SNK - Neo Geo CD (NeoCD)',
 };
 
 /// Built-in emulators. Unverified entries follow commonly used launch
@@ -62,7 +88,11 @@ const builtInEmulators = <EmulatorDefinition>[
     packages: ['org.dolphinemu.dolphinemu', 'org.dolphinemu.mmjr'],
     activity: 'org.dolphinemu.dolphinemu.ui.main.MainActivity',
     action: 'android.intent.action.MAIN',
-    extras: [EmulatorExtra('AutoStartFile', '{path}')],
+    // Recent Dolphin builds have no broad storage access; hand over a
+    // granted content:// URI instead of a raw path.
+    extras: [
+      EmulatorExtra('AutoStartFile', '{path}', EmulatorExtraType.uriString)
+    ],
     systems: ['gc', 'wii'],
     homepage: 'https://dolphin-emu.org/download/',
   ),
@@ -210,6 +240,14 @@ class EmulatorPreferences {
       emulatorId == null
           ? _prefs.remove(_systemKey(systemId))
           : _prefs.setString(_systemKey(systemId), emulatorId);
+
+  /// RetroArch cores live in its private storage, so R-Shop cannot check
+  /// them; the user confirms once per core that it is downloaded.
+  bool coreConfirmed(String core) =>
+      _prefs.getBool('retroarch_core_ok_$core') ?? false;
+
+  Future<void> setCoreConfirmed(String core) =>
+      _prefs.setBool('retroarch_core_ok_$core', true);
 
   Future<void> setGameOverride(
           String systemId, String filename, String? emulatorId) =>

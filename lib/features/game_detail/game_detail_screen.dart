@@ -27,6 +27,7 @@ import '../../services/input_debouncer.dart';
 import '../../services/rom_manager.dart';
 import '../../utils/friendly_error.dart';
 import '../emulators/emulator_picker_screen.dart';
+import '../emulators/retroarch_core_screen.dart';
 import '../../utils/game_metadata.dart';
 import '../../utils/rom_share_helper.dart';
 import '../../utils/image_helper.dart';
@@ -377,6 +378,17 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
       final prefs = EmulatorPreferences(await SharedPreferences.getInstance());
       final service = EmulatorService();
       final option = await service.resolve(system.id, game.filename, prefs);
+      final core = option.definition.cores[system.id];
+      if (option.id == 'retroarch' && core != null && !prefs.coreConfirmed(core)) {
+        if (!mounted) return;
+        final ready = await Navigator.of(context).push<bool>(MaterialPageRoute(
+          builder: (_) => RetroArchCoreScreen(
+              coreName: retroArchCoreNames[core] ?? core,
+              systemName: system.name),
+        ));
+        if (ready != true) return;
+        await prefs.setCoreConfirmed(core);
+      }
       await service.launch(option, path, system.id);
     } catch (e) {
       if (mounted) {
