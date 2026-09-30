@@ -1,6 +1,17 @@
 import 'package:dio/dio.dart';
 
+/// An error whose message is written for the user and is shown as-is.
+class UserFacingException implements Exception {
+  const UserFacingException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 String getUserFriendlyError(dynamic e, {bool returnRawOnNoMatch = false}) {
+  if (e is UserFacingException) return e.message;
+
   // Structured DioException handling — more reliable than string matching.
   if (e is DioException) {
     return _handleDioError(e, returnRawOnNoMatch: returnRawOnNoMatch);

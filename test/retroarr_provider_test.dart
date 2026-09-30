@@ -13,6 +13,7 @@ import 'package:retro_eshop/services/download_handle.dart';
 import 'package:retro_eshop/services/providers/retroarr_provider.dart';
 import 'package:retro_eshop/services/retroarr_api_service.dart';
 import 'package:retro_eshop/services/source_resolver.dart';
+import 'package:retro_eshop/utils/friendly_error.dart';
 
 class _Adapter implements HttpClientAdapter {
   final ResponseBody Function(RequestOptions) reply;
@@ -66,7 +67,7 @@ void main() {
     expect(await RetroArrCredentials.read('saved-source'), isNull);
     await expectLater(
         RetroArrApiService(savedConfig, dio: dio).fetchPlatforms(),
-        throwsStateError);
+        throwsA(isA<UserFacingException>()));
   });
 
   test('detail endpoint maps metadata without requesting files or downloads',
@@ -331,9 +332,12 @@ void main() {
     });
 
     test('a game without files explains how to fix it', () async {
+      // The queue shows this text instead of a generic error.
+      expect(getUserFriendlyError(const UserFacingException('Rescan it')),
+          'Rescan it');
       await expectLater(
           withFiles([]).resolveDownload(game('Game.z64')),
-          throwsA(isA<StateError>()
+          throwsA(isA<UserFacingException>()
               .having((e) => e.message, 'message', contains('Rescan'))));
     });
   });
@@ -350,7 +354,7 @@ void main() {
         });
       await expectLater(
           RetroArrApiService(config, dio: dio).triggerScan(),
-          throwsA(isA<StateError>()
+          throwsA(isA<UserFacingException>()
               .having((e) => e.message, 'message', contains('IGDB'))));
     });
 

@@ -370,7 +370,7 @@ class DownloadService {
     final needed = (sameVolume ? bytes * 2 : bytes) + margin;
     for (final info in [target, temp]) {
       if (info != null && info.freeBytes < needed) {
-        throw Exception('Not enough free space: this game needs '
+        throw UserFacingException('Not enough free space: this game needs '
             '${_formatBytes(needed)}, only ${info.freeSpaceText} available');
       }
     }
@@ -427,7 +427,7 @@ class DownloadService {
       if (_isCancelled) { _emitCancelled(); return; }
       final size = await local.length();
       if (file.size > 0 && size != file.size) {
-        throw Exception('Incomplete download of ${file.relativePath}: '
+        throw UserFacingException('Incomplete download of ${file.relativePath}: '
             'expected ${file.size} bytes, got $size');
       }
       completed += file.size > 0 ? file.size : size;
@@ -468,7 +468,7 @@ class DownloadService {
         RegExp(r'^[A-Za-z]:').hasMatch(normalized) ||
         parts.isEmpty ||
         parts.contains('..')) {
-      throw Exception('Unsafe file path from server: $raw');
+      throw UserFacingException('Unsafe file path from server: $raw');
     }
     return parts;
   }

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+import '../utils/friendly_error.dart';
 import '../models/config/provider_config.dart';
 import 'romm_api_service.dart';
 import 'romm_platform_matcher.dart';
@@ -92,7 +93,7 @@ Stream<RetroArrScanStatus> scanRetroArrLibrary(
       return;
     }
   }
-  throw StateError('RetroArr is still scanning. Check again later.');
+  throw UserFacingException('RetroArr is still scanning. Check again later.');
 }
 
 class RetroArrScanStatus {
@@ -133,7 +134,7 @@ class RetroArrApiService {
             ? null
             : await RetroArrCredentials.read(config.sourceId!));
     if (key == null || key.isEmpty) {
-      throw StateError('RetroArr API key is required.');
+      throw UserFacingException('RetroArr API key is required.');
     }
     return {'X-Api-Key': key};
   }
@@ -163,14 +164,15 @@ class RetroArrApiService {
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       if (status == 401 || status == 403) {
-        throw StateError('RetroArr rejected the API key.');
+        throw UserFacingException('RetroArr rejected the API key.');
       }
       final data = e.response?.data;
       if (data is Map && data['errorCode'] == 'IGDB_NOT_CONFIGURED') {
-        throw StateError('RetroArr needs IGDB credentials before it can scan. '
+        throw UserFacingException(
+            'RetroArr needs IGDB credentials before it can scan. '
             'Add them in RetroArr under Settings > Metadata Providers.');
       }
-      throw StateError(status == null
+      throw UserFacingException(status == null
           ? 'Could not reach RetroArr. Check the server URL and network.'
           : 'RetroArr returned HTTP $status. Check the server URL and API version.');
     }

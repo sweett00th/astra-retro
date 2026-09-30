@@ -2,6 +2,7 @@ import '../../models/config/provider_config.dart';
 import '../../models/config/system_config.dart';
 import '../../models/game_item.dart';
 import '../../models/game_metadata_info.dart';
+import '../../utils/friendly_error.dart';
 import '../database_service.dart';
 import '../download_handle.dart';
 import '../retroarr_api_service.dart';
@@ -51,7 +52,7 @@ class RetroArrProvider implements SourceProvider {
   Future<List<GameItem>> fetchGames(SystemConfig system) async {
     final platformId = config.platformId;
     if (platformId == null) {
-      throw StateError('RetroArr platform is not mapped.');
+      throw UserFacingException('RetroArr platform is not mapped.');
     }
     final rows = await _api.fetchGames(platformId);
     // Catalog rows lack the detail fields; keep those cached from earlier
@@ -111,7 +112,8 @@ class RetroArrProvider implements SourceProvider {
     final id = gameId(game);
     final files = await _api.fetchFiles(id);
     if (files.isEmpty) {
-      throw StateError('RetroArr has no files for "${game.displayName}". '
+      throw UserFacingException(
+          'RetroArr has no files for "${game.displayName}". '
           'Rescan the library in RetroArr and sync again.');
     }
     final headers = await _api.authHeaders();
