@@ -172,6 +172,19 @@ const builtInEmulators = <EmulatorDefinition>[
     romAsData: true,
     systems: ['switch'],
   ),
+  // Nightly builds install next to the release under their own package, so
+  // they are a separate choice.
+  EmulatorDefinition(
+    id: 'eden-nightly',
+    name: 'Eden Nightly',
+    packages: [
+      'dev.eden.eden_emulator.nightly',
+      'dev.legacy.eden_emulator.nightly',
+    ],
+    romAsData: true,
+    systems: ['switch'],
+    homepage: 'https://git.eden-emu.dev/eden-ci/nightly/releases',
+  ),
   EmulatorDefinition(
     id: 'vita3k',
     name: 'Vita3K',

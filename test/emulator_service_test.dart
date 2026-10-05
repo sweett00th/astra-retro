@@ -127,6 +127,21 @@ void main() {
     expect(options.first.definition.homepage,
         startsWith('https://www.scummvm.org'));
   });
+  test('an Eden nightly build is found and used for Switch games', () async {
+    installed = {'dev.eden.eden_emulator.nightly'};
+    final service = EmulatorService();
+    final options = await service.optionsFor('switch');
+    expect(options.map((o) => o.id), ['eden-nightly', 'eden', 'open-with']);
+    expect(options.first.installed, true);
+
+    final picked = await service.resolve('switch', 'Game.nsp', await prefs());
+    expect(picked.id, 'eden-nightly');
+    final request = EmulatorService.launchRequest(
+        picked, '/storage/emulated/0/ROMs/switch/Game.nsp', 'switch');
+    expect(request['package'], 'dev.eden.eden_emulator.nightly');
+    expect(request['data'], '/storage/emulated/0/ROMs/switch/Game.nsp');
+  });
+
   test('nothing installed falls back to Open with', () async {
     final picked =
         await EmulatorService().resolve('gc', 'g.rvz', await prefs());
