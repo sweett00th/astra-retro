@@ -33,8 +33,22 @@ class HomeView extends ConsumerStatefulWidget {
   ConsumerState<HomeView> createState() => _HomeViewState();
 }
 
+/// Opens without the push animation, so the app appears to start on it;
+/// going back still animates.
+class _LandingRoute<T> extends MaterialPageRoute<T> {
+  _LandingRoute({required super.builder});
+
+  @override
+  Duration get transitionDuration => Duration.zero;
+
+  @override
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 300);
+}
+
 class _HomeViewState extends ConsumerState<HomeView>
     with ConsoleScreenMixin {
+  static bool _landedOnLibrary = false;
+
   late PageController _pageController;
   static const int _initialPage = 5000;
   int _currentIndex = 0;
@@ -109,6 +123,15 @@ class _HomeViewState extends ConsumerState<HomeView>
     _lastStablePage = _initialPage;
     _pageController.addListener(_onPageScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // The library is the landing page: it opens over the console list
+      // once per app start, so Back from it leads here.
+      if (mounted && !_landedOnLibrary) {
+        _landedOnLibrary = true;
+        Navigator.push(
+          context,
+          _LandingRoute<void>(builder: (context) => const LibraryScreen()),
+        );
+      }
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
           ref.read(audioManagerProvider).startBgm();
