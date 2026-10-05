@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "id": "switch",
+      "name": "Nintendo Switch",
+      "aliases": [
+        "nx",
+        "nsw"
+      ],
+      "asset_count": 1,
+      "kinds": {
+        "bios": 0,
+        "firmware": 1,
+        "keys": 0,
+        "other": 0
+      },
+      "hidden_sensitive_count": 1,
+      "builtin": true
+    },
+    {
+      "id": "ps1",
+      "name": "PlayStation",
+      "aliases": [
+        "psx",
+        "playstation"
+      ],
+      "asset_count": 1,
+      "kinds": {
+        "bios": 1,
+        "firmware": 0,
+        "keys": 0,
+        "other": 0
+      },
+      "hidden_sensitive_count": 0,
+      "builtin": true
+    }
+  ]
+}

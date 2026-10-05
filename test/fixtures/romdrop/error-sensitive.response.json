@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "sensitive_permission_required",
+    "message": "This device is not allowed to access sensitive system files."
+  }
+}

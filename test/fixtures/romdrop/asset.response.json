@@ -1,0 +1,156 @@
+{
+  "id": "ast_2bb7e3a39ced5137",
+  "content_class": "system_file",
+  "platform": {
+    "id": "switch",
+    "name": "Nintendo Switch",
+    "aliases": [
+      "nx",
+      "nsw"
+    ]
+  },
+  "kind": "keys",
+  "kind_name": "Keys",
+  "name": "prod.keys",
+  "sensitive": true,
+  "region": "",
+  "model": "",
+  "notes": "Dumped from my own console.",
+  "install_method": "emulator_import",
+  "guidance": "Eden: Settings > System > Install keys, then pick this file.",
+  "preferred_version_id": "ver_dc7d441462614cd7",
+  "version_count": 2,
+  "preferred_version": {
+    "id": "ver_dc7d441462614cd7",
+    "asset_id": "ast_2bb7e3a39ced5137",
+    "label": "19.0.1",
+    "label_known": true,
+    "state": "active",
+    "preferred": true,
+    "pinned": false,
+    "deprecated": false,
+    "notes": "",
+    "provenance": {
+      "source": "upload",
+      "detail": "",
+      "added_by": "admin"
+    },
+    "created_at": "2026-10-05T20:00:08Z",
+    "committed_at": "2026-10-05T20:00:08Z",
+    "size": 30,
+    "file_count": 1,
+    "content_sha256": "c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625",
+    "files": [
+      {
+        "id": "fil_14c7f575cf9acbb9",
+        "version_id": "ver_dc7d441462614cd7",
+        "filename": "prod.keys",
+        "relative_path": "prod.keys",
+        "size": 30,
+        "sha256": "c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625",
+        "etag": "\"sha256-c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625\"",
+        "status": {
+          "inventoried": true,
+          "hash_verified": true,
+          "verified_at": "2026-10-05T20:00:08Z",
+          "state": "ok"
+        },
+        "transfer": {
+          "mode": "file",
+          "extract": false
+        },
+        "download_path": "/api/v1/system/files/fil_14c7f575cf9acbb9/download"
+      }
+    ]
+  },
+  "created_at": "2026-10-05T20:00:08Z",
+  "updated_at": "2026-10-05T20:00:08Z",
+  "versions": [
+    {
+      "id": "ver_dc7d441462614cd7",
+      "asset_id": "ast_2bb7e3a39ced5137",
+      "label": "19.0.1",
+      "label_known": true,
+      "state": "active",
+      "preferred": true,
+      "pinned": false,
+      "deprecated": false,
+      "notes": "",
+      "provenance": {
+        "source": "upload",
+        "detail": "",
+        "added_by": "admin"
+      },
+      "created_at": "2026-10-05T20:00:08Z",
+      "committed_at": "2026-10-05T20:00:08Z",
+      "size": 30,
+      "file_count": 1,
+      "content_sha256": "c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625",
+      "files": [
+        {
+          "id": "fil_14c7f575cf9acbb9",
+          "version_id": "ver_dc7d441462614cd7",
+          "filename": "prod.keys",
+          "relative_path": "prod.keys",
+          "size": 30,
+          "sha256": "c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625",
+          "etag": "\"sha256-c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625\"",
+          "status": {
+            "inventoried": true,
+            "hash_verified": true,
+            "verified_at": "2026-10-05T20:00:08Z",
+            "state": "ok"
+          },
+          "transfer": {
+            "mode": "file",
+            "extract": false
+          },
+          "download_path": "/api/v1/system/files/fil_14c7f575cf9acbb9/download"
+        }
+      ]
+    },
+    {
+      "id": "ver_0fd11b006c3ffc09",
+      "asset_id": "ast_2bb7e3a39ced5137",
+      "label": "18.1.0",
+      "label_known": true,
+      "state": "active",
+      "preferred": false,
+      "pinned": false,
+      "deprecated": false,
+      "notes": "",
+      "provenance": {
+        "source": "upload",
+        "detail": "",
+        "added_by": "admin"
+      },
+      "created_at": "2026-10-05T20:00:08Z",
+      "committed_at": "2026-10-05T20:00:08Z",
+      "size": 23,
+      "file_count": 1,
+      "content_sha256": "3e714f583977034d92b0223a2a951b92aedacf097135f6b42c4d7a06063a99a4",
+      "files": [
+        {
+          "id": "fil_a1c23de50cfe6886",
+          "version_id": "ver_0fd11b006c3ffc09",
+          "filename": "prod.keys",
+          "relative_path": "prod.keys",
+          "size": 23,
+          "sha256": "3e714f583977034d92b0223a2a951b92aedacf097135f6b42c4d7a06063a99a4",
+          "etag": "\"sha256-3e714f583977034d92b0223a2a951b92aedacf097135f6b42c4d7a06063a99a4\"",
+          "status": {
+            "inventoried": true,
+            "hash_verified": true,
+            "verified_at": "2026-10-05T20:00:08Z",
+            "state": "ok"
+          },
+          "transfer": {
+            "mode": "file",
+            "extract": false
+          },
+          "download_path": "/api/v1/system/files/fil_a1c23de50cfe6886/download"
+        }
+      ]
+    }
+  ]
+}

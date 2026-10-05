@@ -31,6 +31,34 @@ class DownloadForegroundService {
   static Completer<void>? _startCompleter;
   static Completer<void>? _stopCompleter;
 
+  // Work outside the game queue (system-file transfers) that also needs the
+  // process kept alive. The game queue stopping does not end the service
+  // while a hold exists.
+  static final Set<String> _holds = {};
+  static int _gameActive = 0;
+  static int _gameQueued = 0;
+
+  static String _text(int activeCount, int queuedCount) {
+    if (_holds.isEmpty) return buildNotificationText(activeCount, queuedCount);
+    if (activeCount == 0 && queuedCount == 0) return 'Transferring system files';
+    return '${buildNotificationText(activeCount, queuedCount)}, system files';
+  }
+
+  /// Keeps the service running for [owner] until [release].
+  static Future<void> hold(String owner) async {
+    if (!_holds.add(owner)) return;
+    await startIfNeeded(activeCount: _gameActive, queuedCount: _gameQueued);
+  }
+
+  static Future<void> release(String owner) async {
+    if (!_holds.remove(owner)) return;
+    if (_gameActive == 0 && _gameQueued == 0) {
+      await stop();
+    } else {
+      await updateProgress(activeCount: _gameActive, queuedCount: _gameQueued);
+    }
+  }
+
   /// Call once at app startup.
   static void init() {
     if (_initialized) return;
@@ -63,6 +91,8 @@ class DownloadForegroundService {
   /// Start the foreground service if not already running.
   /// Call when a download becomes active.
   static Future<void> startIfNeeded({required int activeCount, required int queuedCount}) async {
+    _gameActive = activeCount;
+    _gameQueued = queuedCount;
     if (!_initialized) return;
     // Wait for any pending stop to finish first
     final pendingStop = _stopCompleter;
@@ -93,7 +123,7 @@ class DownloadForegroundService {
 
       final result = await FlutterForegroundTask.startService(
         notificationTitle: 'R-Shop',
-        notificationText: buildNotificationText(activeCount, queuedCount),
+        notificationText: _text(activeCount, queuedCount),
         callback: _startCallback,
       );
 
@@ -112,9 +142,11 @@ class DownloadForegroundService {
     required int queuedCount,
     String? progressDetail,
   }) async {
+    _gameActive = activeCount;
+    _gameQueued = queuedCount;
     if (!_running) return;
 
-    var text = buildNotificationText(activeCount, queuedCount);
+    var text = _text(activeCount, queuedCount);
     if (progressDetail != null) {
       text = '$text — $progressDetail';
     }
@@ -127,6 +159,13 @@ class DownloadForegroundService {
 
   /// Stop the foreground service. Call when all downloads are finished.
   static Future<void> stop() async {
+    _gameActive = 0;
+    _gameQueued = 0;
+    if (_holds.isNotEmpty) {
+      // Something else still needs the process kept alive.
+      await updateProgress(activeCount: 0, queuedCount: 0);
+      return;
+    }
     final pending = _startCompleter;
     if (pending != null) {
       await pending.future;

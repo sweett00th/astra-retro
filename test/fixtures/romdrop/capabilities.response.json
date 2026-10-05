@@ -1,0 +1,36 @@
+{
+  "api_version": "v1",
+  "server": {
+    "name": "RomDrop",
+    "version": "1.0.0"
+  },
+  "principal": {
+    "kind": "device",
+    "id": "dev_24c2c977dce9a389",
+    "name": "Astra tablet",
+    "permissions": {
+      "read": true,
+      "sensitive": true,
+      "admin": false
+    }
+  },
+  "features": {
+    "system_library": {
+      "available": true,
+      "reason": null,
+      "kinds": [
+        "bios",
+        "firmware",
+        "keys",
+        "other"
+      ],
+      "range_downloads": true,
+      "checksums": [
+        "sha256"
+      ]
+    }
+  },
+  "transport": {
+    "encrypted": true
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "token": "rdt_EXAMPLE-ONLY-not-a-real-token-000000000000",
+  "token_type": "Bearer",
+  "device": {
+    "id": "dev_24c2c977dce9a389",
+    "name": "Astra tablet",
+    "permissions": {
+      "read": true,
+      "sensitive": true,
+      "admin": false
+    }
+  }
+}

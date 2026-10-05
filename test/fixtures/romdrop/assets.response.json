@@ -1,0 +1,141 @@
+{
+  "items": [
+    {
+      "id": "ast_6bde03945106ac2d",
+      "content_class": "system_file",
+      "platform": {
+        "id": "switch",
+        "name": "Nintendo Switch",
+        "aliases": [
+          "nx",
+          "nsw"
+        ]
+      },
+      "kind": "firmware",
+      "kind_name": "Firmware",
+      "name": "System firmware",
+      "sensitive": false,
+      "region": "any",
+      "model": "",
+      "notes": "",
+      "install_method": "emulator_import",
+      "guidance": "Eden: Settings > System > Install firmware, then pick the archive. Do not unpack it.",
+      "preferred_version_id": "ver_c7cffb5d4054e7b1",
+      "version_count": 1,
+      "preferred_version": {
+        "id": "ver_c7cffb5d4054e7b1",
+        "asset_id": "ast_6bde03945106ac2d",
+        "label": "19.0.1",
+        "label_known": true,
+        "state": "active",
+        "preferred": true,
+        "pinned": false,
+        "deprecated": false,
+        "notes": "",
+        "provenance": {
+          "source": "upload",
+          "detail": "",
+          "added_by": "admin"
+        },
+        "created_at": "2026-10-05T20:00:08Z",
+        "committed_at": "2026-10-05T20:00:08Z",
+        "size": 26,
+        "file_count": 1,
+        "content_sha256": "8beb8efc55bb7539d2a177bc59b7cdb96357a1c8a29c5c62bd6d997fb2f9eef4",
+        "files": [
+          {
+            "id": "fil_b9bb51011b98e6f3",
+            "version_id": "ver_c7cffb5d4054e7b1",
+            "filename": "Firmware 19.0.1.zip",
+            "relative_path": "Firmware 19.0.1.zip",
+            "size": 26,
+            "sha256": "8beb8efc55bb7539d2a177bc59b7cdb96357a1c8a29c5c62bd6d997fb2f9eef4",
+            "etag": "\"sha256-8beb8efc55bb7539d2a177bc59b7cdb96357a1c8a29c5c62bd6d997fb2f9eef4\"",
+            "status": {
+              "inventoried": true,
+              "hash_verified": true,
+              "verified_at": "2026-10-05T20:00:08Z",
+              "state": "ok"
+            },
+            "transfer": {
+              "mode": "file",
+              "extract": false
+            },
+            "download_path": "/api/v1/system/files/fil_b9bb51011b98e6f3/download"
+          }
+        ]
+      },
+      "created_at": "2026-10-05T20:00:08Z",
+      "updated_at": "2026-10-05T20:00:08Z"
+    },
+    {
+      "id": "ast_2bb7e3a39ced5137",
+      "content_class": "system_file",
+      "platform": {
+        "id": "switch",
+        "name": "Nintendo Switch",
+        "aliases": [
+          "nx",
+          "nsw"
+        ]
+      },
+      "kind": "keys",
+      "kind_name": "Keys",
+      "name": "prod.keys",
+      "sensitive": true,
+      "region": "",
+      "model": "",
+      "notes": "Dumped from my own console.",
+      "install_method": "emulator_import",
+      "guidance": "Eden: Settings > System > Install keys, then pick this file.",
+      "preferred_version_id": "ver_dc7d441462614cd7",
+      "version_count": 2,
+      "preferred_version": {
+        "id": "ver_dc7d441462614cd7",
+        "asset_id": "ast_2bb7e3a39ced5137",
+        "label": "19.0.1",
+        "label_known": true,
+        "state": "active",
+        "preferred": true,
+        "pinned": false,
+        "deprecated": false,
+        "notes": "",
+        "provenance": {
+          "source": "upload",
+          "detail": "",
+          "added_by": "admin"
+        },
+        "created_at": "2026-10-05T20:00:08Z",
+        "committed_at": "2026-10-05T20:00:08Z",
+        "size": 30,
+        "file_count": 1,
+        "content_sha256": "c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625",
+        "files": [
+          {
+            "id": "fil_14c7f575cf9acbb9",
+            "version_id": "ver_dc7d441462614cd7",
+            "filename": "prod.keys",
+            "relative_path": "prod.keys",
+            "size": 30,
+            "sha256": "c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625",
+            "etag": "\"sha256-c493e4ed8d2837b04a3ec7ace297832220107457a1beaa39de86586768f84625\"",
+            "status": {
+              "inventoried": true,
+              "hash_verified": true,
+              "verified_at": "2026-10-05T20:00:08Z",
+              "state": "ok"
+            },
+            "transfer": {
+              "mode": "file",
+              "extract": false
+            },
+            "download_path": "/api/v1/system/files/fil_14c7f575cf9acbb9/download"
+          }
+        ]
+      },
+      "created_at": "2026-10-05T20:00:08Z",
+      "updated_at": "2026-10-05T20:00:08Z"
+    }
+  ],
+  "next_cursor": null
+}
