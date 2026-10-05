@@ -464,6 +464,59 @@ void main() {
       // Should complete without throwing
       await romManager.delete(game, testSystem, tempDir.path);
     });
+
+    test('a .cue game takes its track files with it', () async {
+      File('${tempDir.path}/Game.cue').writeAsStringSync(
+          'FILE "Game (Track 1).bin" BINARY\n'
+          '  TRACK 01 MODE2/2352\n'
+          '    INDEX 01 00:00:00\n'
+          'file "Game (Track 2).bin" BINARY\n'
+          '  TRACK 02 AUDIO\n');
+      File('${tempDir.path}/Game (Track 1).bin').writeAsStringSync('1');
+      File('${tempDir.path}/Game (Track 2).bin').writeAsStringSync('2');
+      File('${tempDir.path}/Other.cue').writeAsStringSync(
+          'FILE "Other.bin" BINARY\n');
+      File('${tempDir.path}/Other.bin').writeAsStringSync('keep');
+
+      await romManager.delete(
+          const GameItem(filename: 'Game.cue', displayName: 'Game', url: ''),
+          testSystem,
+          tempDir.path);
+
+      expect(
+          tempDir.listSync().map((e) => e.uri.pathSegments.last).toList()
+            ..sort(),
+          ['Other.bin', 'Other.cue']);
+    });
+
+    test('a sheet never deletes files outside its own folder', () async {
+      final outside = File('${tempDir.path}/outside.bin')..writeAsStringSync('x');
+      final folder = Directory('${tempDir.path}/psx')..createSync();
+      File('${folder.path}/Game.cue').writeAsStringSync(
+          'FILE "../outside.bin" BINARY\nFILE "Game.cue" BINARY\n');
+
+      await romManager.delete(
+          const GameItem(filename: 'Game.cue', displayName: 'Game', url: ''),
+          testSystem,
+          folder.path);
+
+      expect(outside.existsSync(), isTrue);
+      expect(File('${folder.path}/Game.cue').existsSync(), isFalse);
+    });
+
+    test('a .gdi game takes its track files with it', () async {
+      File('${tempDir.path}/Game.gdi').writeAsStringSync(
+          '2\n1 0 4 2352 track01.bin 0\n2 600 0 2352 "track 02.raw" 0\n');
+      File('${tempDir.path}/track01.bin').writeAsStringSync('1');
+      File('${tempDir.path}/track 02.raw').writeAsStringSync('2');
+
+      await romManager.delete(
+          const GameItem(filename: 'Game.gdi', displayName: 'Game', url: ''),
+          testSystem,
+          tempDir.path);
+
+      expect(tempDir.listSync(), isEmpty);
+    });
   });
 
   // ─── scanLocalGames with multiFileExtensions ───────────────────

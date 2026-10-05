@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -220,7 +221,15 @@ class RomManager {
       final path = getTargetPath(game, system, targetFolder);
       final file = File(path);
       if (await file.exists()) {
+        final tracks = await sheetTrackFiles(file);
         await file.delete();
+        for (final track in tracks) {
+          try {
+            await track.delete();
+          } on FileSystemException catch (e) {
+            debugPrint('RomManager: could not delete ${track.path}: $e');
+          }
+        }
         return;
       }
 
@@ -246,6 +255,40 @@ class RomManager {
     } on FileSystemException catch (e) {
       debugPrint('RomManager: delete failed for ${game.filename}: $e');
     }
+  }
+
+  static final _cueFileLine =
+      RegExp(r'^\s*FILE\s+(?:"([^"]+)"|(\S+))', caseSensitive: false);
+  static final _gdiTrackLine =
+      RegExp(r'^\s*\d+\s+\d+\s+\d+\s+\d+\s+(?:"([^"]+)"|(\S+))\s+\d+');
+
+  /// Track files a `.cue` or `.gdi` sheet names. They sit next to the sheet
+  /// and belong to it alone, so they are deleted together with the game.
+  static Future<List<File>> sheetTrackFiles(File sheet) async {
+    final ext = p.extension(sheet.path).toLowerCase();
+    if (ext != '.cue' && ext != '.gdi') return const [];
+    final pattern = ext == '.cue' ? _cueFileLine : _gdiTrackLine;
+    final tracks = <File>[];
+    try {
+      // Sheets are a few lines of text; anything large is not a sheet.
+      if (await sheet.length() > 1024 * 1024) return const [];
+      final text = utf8.decode(await sheet.readAsBytes(), allowMalformed: true);
+      final names = <String>{};
+      for (final line in const LineSplitter().convert(text)) {
+        final match = pattern.firstMatch(line);
+        final name = match?.group(1) ?? match?.group(2);
+        if (name != null) names.add(name);
+      }
+      for (final name in names) {
+        // Only plain names next to the sheet: never follow a path.
+        if (p.basename(name) != name || name == p.basename(sheet.path)) continue;
+        final track = File(p.join(sheet.parent.path, name));
+        if (await track.exists()) tracks.add(track);
+      }
+    } on FileSystemException catch (e) {
+      debugPrint('RomManager: could not read sheet ${sheet.path}: $e');
+    }
+    return tracks;
   }
 
   Future<Set<String>> getInstalledFilenames(
