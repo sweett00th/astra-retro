@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/input/input.dart';
 import '../../core/responsive/responsive.dart';
@@ -23,26 +25,32 @@ import '../../providers/download_providers.dart';
 import '../../providers/installed_files_provider.dart';
 import '../../models/ra_models.dart';
 import '../../providers/game_providers.dart';
+import '../../providers/library_providers.dart';
+import '../../providers/rom_status_providers.dart';
 import '../../providers/shelf_providers.dart';
 import '../../services/config_bootstrap.dart';
 import '../../services/database_service.dart';
 import '../../services/input_debouncer.dart';
+import '../../services/recently_played_store.dart';
+import '../../services/rom_manager.dart';
 import '../../services/thumbnail_service.dart';
 import '../../utils/game_metadata.dart';
 import '../../utils/image_helper.dart';
 import '../game_detail/game_detail_screen.dart';
 import '../../widgets/base_game_card.dart';
 import '../../widgets/console_hud.dart';
+import '../../widgets/console_notification.dart';
 import '../../widgets/download_overlay.dart';
+import '../../widgets/exit_confirmation_overlay.dart';
 import '../../widgets/quick_menu.dart';
 import '../../widgets/selection_aware_item.dart';
+import 'library_layout.dart';
 import 'shelf_edit_screen.dart';
 import 'widgets/library_entry.dart';
+import 'widgets/library_section_header.dart';
 import 'widgets/library_tabs.dart';
 import 'widgets/reorderable_card_wrapper.dart';
 import 'widgets/shelf_picker_dialog.dart';
-
-enum LibrarySortMode { alphabetical, bySystem }
 
 enum ReorderState { none, selecting, grabbed }
 
@@ -56,48 +64,111 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with ConsoleScreenMixin, SearchableScreenMixin {
-  static const _fixedTabCount = 3;
-  int _selectedTab = 0; // 0=All, 1=Installed, 2=Favorites, 3+=Shelves
-  LibrarySortMode _sortMode = LibrarySortMode.alphabetical;
+  // Fixed tabs: Installed, Available, All, Favorites; shelves follow.
+  static const _tabInstalled = 0;
+  static const _tabAvailable = 1;
+  static const _tabFavorites = 3;
+  static const _fixedTabCount = 4;
+
+  /// Covers are portrait box art; tiles match so the art fills them.
+  static const _tileAspect = 0.72;
+  static const _columnsKey = 'library_covers';
+  static const _minColumns = 3;
+  static const _maxColumns = 8;
+
+  /// Tile width the default zoom level aims for.
+  static const _autoTileWidth = 145.0;
+  static const _maxRecents = 12;
+  static const _headerGap = 8.0;
+  static const _sectionGap = 18.0;
+  static const _recentsGap = 18.0;
+
+  static final Map<String, SystemModel> _systemsById = {
+    for (final s in SystemModel.supportedSystems) s.id: s,
+  };
+
+  int _selectedTab = _tabInstalled; // fixed tabs, then shelves
   List<CustomShelf> _shelves = [];
 
   // Reorder mode
   ReorderState _reorderState = ReorderState.none;
   int _grabbedIndex = -1;
   int? _reorderClaimToken;
-  final ValueNotifier<int> _selectedIndexNotifier = ValueNotifier(0);
-  int get _currentIndex => _selectedIndexNotifier.value;
-  set _currentIndex(int v) {
-    _selectedIndexNotifier.value = v;
-    _focusManager.setSelectedIndex(v);
-  }
-  late int _columns;
+
+  // Controller cursor: a recents tile, a platform header or a game tile.
+  LibraryCursor _cursor = const LibraryCursor.header(0);
+  final ValueNotifier<int> _selectedIdNotifier =
+      ValueNotifier(const LibraryCursor.header(0).id);
+  int _preferredColumn = 0;
+  int _recentMemory = 0;
+  DateTime? _lastMove;
+
+  /// 0 until the first build fits the default to the screen width.
+  int _columns = 0;
   String _searchQuery = '';
   bool _isLoading = true;
 
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _recentsController = ScrollController();
   final ValueNotifier<bool> _scrollSuppression = ValueNotifier(false);
-  final Map<int, GlobalKey> _itemKeys = {};
+  Timer? _suppressionTimer;
+  bool _programmaticScroll = false;
+  int _scrollToken = 0;
 
   late InputDebouncer _debouncer;
-  late final FocusSyncManager _focusManager;
 
   ProviderSubscription? _installedFilesSubscription;
+  ProviderSubscription? _syncSubscription;
+  Timer? _reloadDebounce;
 
   // Raw data from DB
   List<LibraryEntry> _allGames = [];
   Set<String> _installedFiles = {};
   Set<String> _favoriteIds = {};
-  // Filtered/sorted view
+  List<RecentlyPlayedEntry> _recentlyPlayed = [];
+  // Current tab: games in display order, grouped into platform sections
   List<LibraryEntry> _filteredGames = [];
+  List<LibrarySection> _sections = [];
+  List<LibraryEntry> _recents = [];
+  Set<String> _installedKeys = {};
+  int _installedCount = 0;
+  int _availableCount = 0;
+  final Map<int, Set<String>> _expandedByTab = {};
   // RA match data keyed by filename
   Map<String, RaMatchResult> _raMatches = {};
-  // Pre-computed cover URLs per filtered index
-  Map<int, List<String>> _coverUrlCache = {};
+  final Map<String, List<String>> _coverUrlCache = {};
+
+  // Geometry of the last build; the layout knows where every row is.
+  double _side = 0;
+  double _spacing = 0;
+  double _tileWidth = 0;
+  LibraryMetrics _metrics = const LibraryMetrics(
+      recentsHeight: 0,
+      headerHeight: 0,
+      tileHeight: 0,
+      rowSpacing: 0,
+      sectionGap: 0);
+  late LibraryLayout _layout;
+
+  // Multi-select (bulk uninstall)
+  bool _selectMode = false;
+  final Set<String> _marked = {};
+  bool _confirmUninstall = false;
+  bool _uninstalling = false;
 
   int get _totalTabCount => _fixedTabCount + _shelves.length;
 
   bool get _isShelfTab => _selectedTab >= _fixedTabCount;
+
+  /// Fixed tabs group games by platform; shelves and search results are one
+  /// plain grid.
+  bool get _sectioned => !_isShelfTab && _searchQuery.isEmpty;
+
+  bool get _showRecents =>
+      _sectioned && _recents.isNotEmpty && _filteredGames.isNotEmpty;
+
+  Set<String> get _expanded =>
+      _expandedByTab.putIfAbsent(_selectedTab, () => <String>{});
 
   CustomShelf? get _activeShelf {
     if (!_isShelfTab) return null;
@@ -105,6 +176,17 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     if (idx < 0 || idx >= _shelves.length) return null;
     return _shelves[idx];
   }
+
+  /// Game under the cursor, or null on a platform header.
+  LibraryEntry? get _focusedEntry => switch (_cursor.kind) {
+        LibraryCursorKind.game =>
+          _cursor.index < _filteredGames.length
+              ? _filteredGames[_cursor.index]
+              : null,
+        LibraryCursorKind.recent =>
+          _cursor.index < _recents.length ? _recents[_cursor.index] : null,
+        LibraryCursorKind.header => null,
+      };
 
   @override
   String get routeId => 'library';
@@ -118,8 +200,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   @override
   void onSearchQueryChanged(String query) {
     _searchQuery = query;
-    _currentIndex = 0;
-    _applyFilters();
+    _applyFilters(resetCursor: true);
+    _scrollToTop();
   }
 
   @override
@@ -129,7 +211,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   @override
-  void onSearchSelectionReset() => _currentIndex = 0;
+  void onSearchSelectionReset() {
+    final first = _layout.first;
+    if (first != null) _setCursor(first);
+  }
 
   // L1/R1 zoom and L2/R2 tabs are handled by global shortcuts.
 
@@ -137,7 +222,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   Map<Type, Action<Intent>> get screenActions {
     return {
         NavigateIntent: OverlayGuardedAction<NavigateIntent>(ref,
-          onInvoke: (intent) { _navigateGrid(intent.direction); return null; },
+          onInvoke: (intent) { _navigate(intent.direction); return null; },
           isEnabledOverride: _reorderOrSearchOrNone,
         ),
         AdjustColumnsIntent: OverlayGuardedAction<AdjustColumnsIntent>(ref,
@@ -154,7 +239,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         ),
         SearchIntent: CallbackAction<SearchIntent>(
           onInvoke: (_) {
-            toggleSearch();
+            // Y uninstalls the marked games while multi-select is on.
+            if (_selectMode) {
+              _requestUninstall();
+            } else {
+              toggleSearch();
+            }
             return null;
           },
         ),
@@ -175,18 +265,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   @override
   void initState() {
     super.initState();
-    _columns = ref.read(gridColumnsProvider('library'));
+    _columns = ref
+        .read(storageServiceProvider)
+        .getGridColumns(_columnsKey, fallback: 0)
+        .clamp(0, _maxColumns);
     _debouncer = ref.read(inputDebouncerProvider);
     _shelves = ref.read(customShelvesProvider);
-
-    _focusManager = FocusSyncManager(
-      scrollController: _scrollController,
-      getCrossAxisCount: () => _columns,
-      getItemCount: () => _filteredGames.length,
-      getGridRatio: () => 1.0,
-      onSelectionChanged: (index) => _selectedIndexNotifier.value = index,
-      scrollSuppression: _scrollSuppression,
-    );
+    _layout = _newLayout();
 
     initSearch();
 
@@ -200,23 +285,33 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           _applyFilters();
         }
       });
+      // The library is the landing page: pick up games as syncs finish.
+      _syncSubscription = ref.listenManual(librarySyncServiceProvider, (prev, next) {
+        if (prev == null) return;
+        if (prev.completedSystems != next.completedSystems ||
+            (prev.isSyncing && !next.isSyncing)) {
+          _reloadDebounce?.cancel();
+          _reloadDebounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted && !_uninstalling) _loadData(silent: true);
+          });
+        }
+      });
     });
   }
 
   @override
   void dispose() {
     _exitReorderMode();
-    final selectedIndex = _currentIndex;
-    Future.microtask(() {
-      focusStateManager.saveFocusState(routeId, selectedIndex: selectedIndex);
-    });
     _installedFilesSubscription?.close();
+    _syncSubscription?.close();
+    _reloadDebounce?.cancel();
+    _suppressionTimer?.cancel();
     _debouncer.stopHold();
-    _focusManager.dispose();
     _scrollController.dispose();
+    _recentsController.dispose();
     disposeSearch();
     _scrollSuppression.dispose();
-    _selectedIndexNotifier.dispose();
+    _selectedIdNotifier.dispose();
     super.dispose();
   }
 
@@ -242,8 +337,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  /// Loads the library from the DB. [silent] refreshes in place (after a
+  /// sync or an uninstall) without the spinner or moving the cursor.
+  Future<void> _loadData({bool silent = false}) async {
+    if (!silent) setState(() => _isLoading = true);
 
     final db = DatabaseService();
 
@@ -308,34 +405,48 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       }
     }
 
+    final recentlyPlayed = await _loadRecentlyPlayed();
+
     if (!mounted) return;
 
     setState(() {
       _allGames = entries;
       _favoriteIds = migratedFavorites;
       _raMatches = raMatches;
+      _recentlyPlayed = recentlyPlayed;
+      _coverUrlCache.clear();
       _isLoading = false;
     });
 
-    _applyFilters();
+    _applyFilters(resetCursor: !silent);
 
-    // Restore saved index
-    final saved = getSavedFocusState();
-    if (saved?.selectedIndex != null && saved!.selectedIndex! > 0) {
-      _currentIndex =
-          saved.selectedIndex!.clamp(0, _filteredGames.length - 1);
-      setState(() {});
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToSelected();
-      });
-    }
-
-    if (widget.openSearch) {
+    if (!silent && widget.openSearch) {
       openSearch();
     }
   }
 
-  void _applyFilters() {
+  Future<List<RecentlyPlayedEntry>> _loadRecentlyPlayed() async =>
+      RecentlyPlayedStore(await SharedPreferences.getInstance()).load();
+
+  void _applyFilters({bool resetCursor = false}) {
+    final previous = _cursor;
+    final previousEntry = _focusedEntry?.key;
+    final previousSection = previous.kind == LibraryCursorKind.header &&
+            previous.index < _sections.length
+        ? _sections[previous.index].key
+        : null;
+
+    final installedKeys = {
+      for (final g in _allGames)
+        if (_isGameInstalled(g)) g.key,
+    };
+    final installed = _deduplicateInstalled(
+      _allGames.where((g) => installedKeys.contains(g.key)).toList(),
+    );
+    final available = _allGames
+        .where((g) => g.isRemote && !installedKeys.contains(g.key))
+        .toList();
+
     List<LibraryEntry> games;
     bool isManualSort = false;
     ShelfSortMode? shelfSortMode;
@@ -346,17 +457,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       isManualSort = resolved.isManualSort;
       shelfSortMode = resolved.shelfSortMode;
     } else {
-      games = List<LibraryEntry>.from(_allGames);
-      // Tab filter
-      switch (_selectedTab) {
-        case 1: // Installed
-          games = _deduplicateInstalled(
-            games.where((g) => _isGameInstalled(g)).toList(),
-          );
-        case 2: // Favorites
-          games =
-              games.where((g) => _favoriteIds.contains(g.filename)).toList();
-      }
+      games = switch (_selectedTab) {
+        _tabInstalled => installed,
+        _tabAvailable => available,
+        _tabFavorites =>
+          _allGames.where((g) => _favoriteIds.contains(g.filename)).toList(),
+        _ => List<LibraryEntry>.from(_allGames),
+      };
     }
 
     // Search filter
@@ -368,34 +475,143 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
 
     // Sort (skip for manual-sort shelves)
-    if (!isManualSort) {
-      final effectiveSort = shelfSortMode != null
-          ? (shelfSortMode == ShelfSortMode.bySystem
-              ? LibrarySortMode.bySystem
-              : LibrarySortMode.alphabetical)
-          : _sortMode;
-      switch (effectiveSort) {
-        case LibrarySortMode.alphabetical:
-          games.sort(
-              (a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
-        case LibrarySortMode.bySystem:
-          games.sort((a, b) {
-            final cmp = a.systemSlug.compareTo(b.systemSlug);
-            if (cmp != 0) return cmp;
-            return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
-          });
+    if (_sectioned) {
+      games.sort(_compareByPlatform);
+    } else if (!isManualSort) {
+      if (shelfSortMode == ShelfSortMode.bySystem) {
+        games.sort((a, b) {
+          final cmp = a.systemSlug.compareTo(b.systemSlug);
+          if (cmp != 0) return cmp;
+          return a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+        });
+      } else {
+        games.sort(
+            (a, b) => a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
       }
     }
 
     setState(() {
+      _installedKeys = installedKeys;
+      _installedCount = installed.length;
+      _availableCount = available.length;
       _filteredGames = games;
-      _rebuildCoverUrlCache();
-      _updateItemKeys();
-      if (_currentIndex >= _filteredGames.length) {
-        _currentIndex =
-            _filteredGames.isEmpty ? 0 : _filteredGames.length - 1;
-      }
+      _marked.retainAll(installedKeys);
+      _rebuildSections();
+      _rebuildRecents();
+      _layout = _newLayout();
+      _restoreCursor(
+        previous: previous,
+        entryKey: previousEntry,
+        sectionKey: previousSection,
+        reset: resetCursor,
+      );
     });
+    _scrollToCursorAfterLayout(onlyIfHidden: true);
+  }
+
+  /// Platforms by name, games by title within a platform.
+  static int _compareByPlatform(LibraryEntry a, LibraryEntry b) {
+    if (a.systemSlug != b.systemSlug) {
+      final byName = _systemName(a.systemSlug)
+          .toLowerCase()
+          .compareTo(_systemName(b.systemSlug).toLowerCase());
+      return byName != 0 ? byName : a.systemSlug.compareTo(b.systemSlug);
+    }
+    final byTitle =
+        a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+    return byTitle != 0 ? byTitle : a.filename.compareTo(b.filename);
+  }
+
+  static String _systemName(String slug) =>
+      _systemsById[slug]?.name ?? slug.toUpperCase();
+
+  void _rebuildSections() {
+    if (!_sectioned) {
+      _sections = _filteredGames.isEmpty
+          ? const []
+          : [
+              LibrarySection(
+                  key: '',
+                  start: 0,
+                  count: _filteredGames.length,
+                  hasHeader: false),
+            ];
+      return;
+    }
+    final expanded = _expanded;
+    final sections = <LibrarySection>[];
+    var start = 0;
+    while (start < _filteredGames.length) {
+      final slug = _filteredGames[start].systemSlug;
+      var end = start + 1;
+      while (end < _filteredGames.length &&
+          _filteredGames[end].systemSlug == slug) {
+        end++;
+      }
+      sections.add(LibrarySection(
+          key: slug,
+          start: start,
+          count: end - start,
+          expanded: expanded.contains(slug)));
+      start = end;
+    }
+    _sections = sections;
+  }
+
+  /// Recently launched games that are still installed, newest first.
+  void _rebuildRecents() {
+    final byKey = {for (final g in _allGames) g.key: g};
+    final recents = <LibraryEntry>[];
+    for (final played in _recentlyPlayed) {
+      final entry = byKey['${played.systemId}/${played.filename}'];
+      if (entry == null || !_installedKeys.contains(entry.key)) continue;
+      recents.add(entry);
+      if (recents.length == _maxRecents) break;
+    }
+    _recents = recents;
+  }
+
+  LibraryLayout _newLayout() => LibraryLayout(
+        recentCount: _showRecents ? _recents.length : 0,
+        sections: _sections,
+        columns: math.max(1, _columns),
+        metrics: _metrics,
+      );
+
+  /// Keeps the cursor on the same game or platform after the list changed,
+  /// or on the nearest cell when it is gone.
+  void _restoreCursor({
+    required LibraryCursor previous,
+    String? entryKey,
+    String? sectionKey,
+    bool reset = false,
+  }) {
+    LibraryCursor? next;
+    if (!reset) {
+      if (previous.kind == LibraryCursorKind.game && entryKey != null) {
+        final index = _filteredGames.indexWhere((g) => g.key == entryKey);
+        if (index >= 0) next = _layout.resolve(LibraryCursor.game(index));
+      } else if (previous.kind == LibraryCursorKind.recent &&
+          entryKey != null) {
+        final index = _recents.indexWhere((g) => g.key == entryKey);
+        if (index >= 0) next = _layout.resolve(LibraryCursor.recent(index));
+      } else if (sectionKey != null) {
+        final index = _sections.indexWhere((s) => s.key == sectionKey);
+        if (index >= 0) next = _layout.resolve(LibraryCursor.header(index));
+      }
+      next ??= _layout.resolve(previous);
+    }
+    _setCursor(next ?? _layout.first ?? const LibraryCursor.header(0));
+  }
+
+  void _setCursor(LibraryCursor cursor, {bool keepColumn = false}) {
+    _cursor = cursor;
+    if (cursor.kind == LibraryCursorKind.recent) {
+      _recentMemory = cursor.index;
+    } else if (cursor.kind == LibraryCursorKind.game && !keepColumn) {
+      _preferredColumn = _layout.columnOf(cursor);
+    }
+    _selectedIdNotifier.value = cursor.id;
   }
 
   ({List<LibraryEntry> games, bool isManualSort, ShelfSortMode? shelfSortMode}) _resolveShelfGames() {
@@ -425,92 +641,46 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     return (games: games, isManualSort: shelf.sortMode == ShelfSortMode.manual, shelfSortMode: shelf.sortMode);
   }
 
-  void _updateItemKeys() {
-    final count = _filteredGames.length;
-    if (_itemKeys.length == count) return;
-    _itemKeys.clear();
-    for (int i = 0; i < count; i++) {
-      _itemKeys[i] = GlobalKey();
-    }
-  }
-
-  void _rebuildCoverUrlCache() {
-    _coverUrlCache = {};
-    for (int i = 0; i < _filteredGames.length; i++) {
-      final entry = _filteredGames[i];
-      final systemModel = SystemModel.supportedSystems
-          .where((s) => s.id == entry.systemSlug)
-          .firstOrNull;
-      if (systemModel != null) {
-        _coverUrlCache[i] =
-            ImageHelper.getCoverUrlsForSingle(systemModel, entry.filename);
-      }
-    }
-  }
+  List<String> _coverUrlsFor(LibraryEntry entry) =>
+      _coverUrlCache.putIfAbsent(entry.key, () {
+        final systemModel = _systemsById[entry.systemSlug];
+        return systemModel == null
+            ? const []
+            : ImageHelper.getCoverUrlsForSingle(systemModel, entry.filename);
+      });
 
   // --- Tab Navigation ---
 
-  void _nextTab() {
-    if (_reorderState != ReorderState.none) return;
-    ref.read(feedbackServiceProvider).tick();
-    _shelves = ref.read(customShelvesProvider);
-    setState(() {
-      _selectedTab = (_selectedTab + 1) % _totalTabCount;
-      _currentIndex = 0;
-    });
-    _applyFilters();
-    _scrollToTop();
-  }
+  void _nextTab() => _selectTab((_selectedTab + 1) % _totalTabCount);
 
-  void _prevTab() {
-    if (_reorderState != ReorderState.none) return;
-    ref.read(feedbackServiceProvider).tick();
-    _shelves = ref.read(customShelvesProvider);
-    setState(() {
-      _selectedTab = (_selectedTab - 1 + _totalTabCount) % _totalTabCount;
-      _currentIndex = 0;
-    });
-    _applyFilters();
-    _scrollToTop();
-  }
+  void _prevTab() =>
+      _selectTab((_selectedTab - 1 + _totalTabCount) % _totalTabCount);
 
   void _selectTab(int index) {
     if (index == _selectedTab) return;
-    if (_reorderState != ReorderState.none) return;
+    if (_reorderState != ReorderState.none || _selectMode) return;
     ref.read(feedbackServiceProvider).tick();
     _shelves = ref.read(customShelvesProvider);
-    setState(() {
-      _selectedTab = index;
-      _currentIndex = 0;
-    });
-    _applyFilters();
+    setState(() => _selectedTab = index);
+    _applyFilters(resetCursor: true);
     _scrollToTop();
   }
 
-  void _cycleSortMode() {
+  void _cycleShelfSortMode() {
+    final shelf = _activeShelf;
+    if (shelf == null) return;
     ref.read(feedbackServiceProvider).tick();
-
-    if (_isShelfTab) {
-      final shelf = _activeShelf;
-      if (shelf == null) return;
-      final next = switch (shelf.sortMode) {
-        ShelfSortMode.alphabetical => ShelfSortMode.bySystem,
-        ShelfSortMode.bySystem => ShelfSortMode.manual,
-        ShelfSortMode.manual => ShelfSortMode.alphabetical,
-      };
-      ref.read(customShelvesProvider.notifier).updateShelf(
-        shelf.id,
-        shelf.copyWith(sortMode: next),
-      );
-      _shelves = ref.read(customShelvesProvider);
-    } else {
-      _sortMode = _sortMode == LibrarySortMode.alphabetical
-          ? LibrarySortMode.bySystem
-          : LibrarySortMode.alphabetical;
-    }
-
-    setState(() => _currentIndex = 0);
-    _applyFilters();
+    final next = switch (shelf.sortMode) {
+      ShelfSortMode.alphabetical => ShelfSortMode.bySystem,
+      ShelfSortMode.bySystem => ShelfSortMode.manual,
+      ShelfSortMode.manual => ShelfSortMode.alphabetical,
+    };
+    ref.read(customShelvesProvider.notifier).updateShelf(
+      shelf.id,
+      shelf.copyWith(sortMode: next),
+    );
+    _shelves = ref.read(customShelvesProvider);
+    _applyFilters(resetCursor: true);
     _scrollToTop();
   }
 
@@ -520,65 +690,198 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
   }
 
-  // --- Grid Navigation ---
+  // --- Platform sections ---
 
-  void _navigateGrid(GridDirection direction) {
-    if (_filteredGames.isEmpty) return;
+  void _toggleSection(int index) {
+    if (index < 0 || index >= _sections.length) return;
+    final key = _sections[index].key;
+    ref.read(feedbackServiceProvider).tick();
+    setState(() {
+      if (!_expanded.remove(key)) _expanded.add(key);
+      _rebuildSections();
+      _layout = _newLayout();
+    });
+    _scrollToCursorAfterLayout();
+  }
+
+  void _setAllExpanded(bool expanded) {
+    ref.read(feedbackServiceProvider).tick();
+    setState(() {
+      _expanded.clear();
+      if (expanded) _expanded.addAll(_sections.map((s) => s.key));
+      _rebuildSections();
+      _layout = _newLayout();
+      _setCursor(_layout.resolve(_cursor) ?? const LibraryCursor.header(0));
+    });
+    _scrollToCursorAfterLayout();
+  }
+
+  // --- Navigation ---
+
+  void _navigate(GridDirection direction) {
+    if (_layout.rows.isEmpty || _uninstalling) return;
 
     if (_reorderState == ReorderState.grabbed) {
       _reorderMove(direction);
       return;
     }
 
+    final vertical =
+        direction == GridDirection.up || direction == GridDirection.down;
     if (_debouncer.startHold(() {
-      if (_focusManager.moveFocus(direction)) {
-        _scrollToSelected(instant: _debouncer.isHolding);
-      }
+      final next = _layout.move(_cursor, direction,
+          column: _preferredColumn, recentIndex: _recentMemory);
+      if (next == null || next == _cursor) return;
+      // A single press glides; held or rapid presses jump to keep up.
+      final now = DateTime.now();
+      final rapid = _lastMove != null &&
+          now.difference(_lastMove!) < const Duration(milliseconds: 300);
+      _lastMove = now;
+      _setCursor(next, keepColumn: vertical);
+      _scrollToCursor(instant: rapid);
     })) {
       ref.read(feedbackServiceProvider).tick();
     }
   }
 
-  void _scrollToSelected({bool instant = false}) {
-    _focusManager.scrollToSelectedWithFallback(
-      itemKey: _itemKeys[_focusManager.selectedIndex],
-      crossAxisCount: _columns,
-      instant: instant,
-      isMounted: () => mounted,
-      retryCallback: () => _scrollToSelected(instant: true),
-    );
+  /// Brings the cursor's row to the middle of the screen (and its tile into
+  /// view when it is in the recents row).
+  void _scrollToCursor({bool instant = false, bool onlyIfHidden = false}) {
+    if (_cursor.kind == LibraryCursorKind.recent) {
+      _scrollRecentsTo(_cursor.index, instant: instant);
+    }
+    final row = _layout.rowOf(_cursor);
+    if (row == null || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (!position.hasContentDimensions) return;
+    final viewport = position.viewportDimension;
+    if (onlyIfHidden &&
+        row.top >= position.pixels &&
+        row.bottom <= position.pixels + viewport) {
+      return;
+    }
+    final target = (row.top + row.height / 2 - viewport / 2)
+        .clamp(0.0, position.maxScrollExtent)
+        .toDouble();
+    if ((target - position.pixels).abs() < 1) return;
+
+    final token = ++_scrollToken;
+    _programmaticScroll = true;
+    void done() {
+      if (token == _scrollToken) _programmaticScroll = false;
+    }
+
+    if (instant) {
+      _scrollController.jumpTo(target);
+      WidgetsBinding.instance.addPostFrameCallback((_) => done());
+    } else {
+      _scrollController
+          .animateTo(target,
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut)
+          .whenComplete(done);
+    }
+  }
+
+  /// For changes that alter the content height: scroll once it is laid out.
+  void _scrollToCursorAfterLayout({bool onlyIfHidden = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scrollToCursor(instant: true, onlyIfHidden: onlyIfHidden);
+    });
+  }
+
+  void _scrollRecentsTo(int index, {bool instant = false}) {
+    if (!_recentsController.hasClients) return;
+    final position = _recentsController.position;
+    if (!position.hasContentDimensions) return;
+    final start = index * (_tileWidth + _spacing);
+    final end = start + _tileWidth + 2 * _side - position.viewportDimension;
+    double target;
+    if (position.pixels > start) {
+      target = start;
+    } else if (position.pixels < end) {
+      target = end;
+    } else {
+      return;
+    }
+    target = target.clamp(0.0, position.maxScrollExtent).toDouble();
+    if (instant) {
+      _recentsController.jumpTo(target);
+    } else {
+      _recentsController.animateTo(target,
+          duration: const Duration(milliseconds: 150), curve: Curves.easeOut);
+    }
   }
 
   // --- Scroll Sync ---
 
   bool _handleScrollNotification(ScrollNotification notification) {
-    _focusManager.updateScrollVelocity(notification);
-    return _focusManager.handleScrollNotification(notification, context);
+    // The recents row scrolls sideways inside the page; only the page counts.
+    if (notification.depth != 0) return false;
+    _updateScrollSuppression(notification);
+    if (notification is ScrollEndNotification && !_programmaticScroll) {
+      _moveCursorIntoView();
+    }
+    return false;
+  }
+
+  /// Cover loading pauses while the page is flung.
+  void _updateScrollSuppression(ScrollNotification notification) {
+    void release(int ms) {
+      _suppressionTimer?.cancel();
+      _suppressionTimer = Timer(Duration(milliseconds: ms), () {
+        if (mounted) _scrollSuppression.value = false;
+      });
+    }
+
+    if (notification is ScrollUpdateNotification) {
+      if ((notification.scrollDelta?.abs() ?? 0) > 20) {
+        if (!_scrollSuppression.value) _scrollSuppression.value = true;
+        release(150);
+      }
+    } else if (notification is ScrollEndNotification) {
+      release(100);
+    }
+  }
+
+  /// After a touch scroll left the cursor off screen, continue from what is
+  /// visible instead of jumping back.
+  void _moveCursorIntoView() {
+    if (_debouncer.isHolding || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final row = _layout.rowOf(_cursor);
+    if (row == null) return;
+    final top = position.pixels;
+    if (row.bottom > top && row.top < top + position.viewportDimension) return;
+    final visible = _layout.firstVisibleRow(top, position.viewportDimension);
+    if (visible == null) return;
+    _setCursor(
+      _layout.cellIn(
+          visible,
+          visible.kind == LibraryCursorKind.recent
+              ? _recentMemory
+              : _preferredColumn),
+      keepColumn: true,
+    );
   }
 
   // --- Columns ---
 
   void _adjustColumns(bool increase) {
-    final next = adjustColumnCount(
-      current: _columns,
-      increase: increase,
-      providerKey: 'library',
-      ref: ref,
-    );
+    final next = (increase ? _columns + 1 : _columns - 1)
+        .clamp(_minColumns, _maxColumns);
     if (next == _columns) return;
+    ref.read(storageServiceProvider).setGridColumns(_columnsKey, next);
+    // build() recomputes the geometry and layout for the new column count.
     setState(() => _columns = next);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _scrollToSelected();
+      if (!mounted) return;
+      _preferredColumn = _layout.columnOf(_cursor);
+      _scrollToCursor(instant: true);
     });
   }
 
   // --- Game Detail ---
-
-  void _openSelectedGame() {
-    if (_currentIndex < 0 || _currentIndex >= _filteredGames.length) return;
-    final entry = _filteredGames[_currentIndex];
-    _openGameDetail(entry);
-  }
 
   Future<void> _openGameDetail(LibraryEntry entry) async {
     searchFieldNode.unfocus();
@@ -587,9 +890,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
     final appConfig =
         ref.read(bootstrappedConfigProvider).value ?? AppConfig.empty;
-    final systemModel = SystemModel.supportedSystems
-        .where((s) => s.id == entry.systemSlug)
-        .firstOrNull;
+    final systemModel = _systemsById[entry.systemSlug];
     if (systemModel == null) return;
 
     final systemConfig =
@@ -620,23 +921,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       ),
     );
 
-    if (mounted) {
-      resumeSearchOverlay();
-      // Reload to pick up install/favorite/shelf changes
-      _favoriteIds = ref.read(favoriteGamesProvider).toSet();
-      _shelves = ref.read(customShelvesProvider);
-      final data = ref.read(installedFilesProvider).value;
-      if (data != null) {
-        _installedFiles = data.all;
-      }
-      _applyFilters();
-      if (isSearchActive) {
-        requestScreenFocus();
-      }
+    if (!mounted) return;
+    // The game may have been played from its page.
+    final recentlyPlayed = await _loadRecentlyPlayed();
+    if (!mounted) return;
+
+    resumeSearchOverlay();
+    // Reload to pick up install/favorite/shelf changes
+    _recentlyPlayed = recentlyPlayed;
+    _favoriteIds = ref.read(favoriteGamesProvider).toSet();
+    _shelves = ref.read(customShelvesProvider);
+    final data = ref.read(installedFilesProvider).value;
+    if (data != null) {
+      _installedFiles = data.all;
+    }
+    _applyFilters();
+    if (isSearchActive) {
+      requestScreenFocus();
     }
   }
 
   void _handleConfirm() {
+    if (_uninstalling) return;
     if (_reorderState == ReorderState.selecting) {
       _grabItem();
       return;
@@ -645,10 +951,21 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _dropItem();
       return;
     }
-    _openSelectedGame();
+    if (_cursor.kind == LibraryCursorKind.header) {
+      _toggleSection(_cursor.index);
+      return;
+    }
+    final entry = _focusedEntry;
+    if (entry == null) return;
+    if (_selectMode) {
+      _toggleMark(entry);
+    } else {
+      _openGameDetail(entry);
+    }
   }
 
   void _handleBack() {
+    if (_uninstalling) return;
     ref.read(feedbackServiceProvider).cancel();
     if (_reorderState == ReorderState.grabbed) {
       _dropItem();
@@ -658,6 +975,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _exitReorderMode();
       return;
     }
+    if (_selectMode) {
+      _exitSelectMode();
+      return;
+    }
     if (isSearchActive) {
       handleSearchBack();
     } else {
@@ -665,21 +986,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
   }
 
+  void _replaceEntry(LibraryEntry entry, {String? coverUrl, bool? hasThumbnail}) {
+    final idx = _allGames.indexWhere((g) => g.key == entry.key);
+    if (idx < 0) return;
+    _allGames[idx] = LibraryEntry(
+      filename: entry.filename,
+      displayName: entry.displayName,
+      cardTitle: entry.cardTitle,
+      url: entry.url,
+      coverUrl: coverUrl ?? entry.coverUrl,
+      systemSlug: entry.systemSlug,
+      providerConfig: entry.providerConfig,
+      hasThumbnail: hasThumbnail ?? entry.hasThumbnail,
+    );
+  }
+
   Future<void> _onCoverFound(String url, LibraryEntry entry) async {
     await DatabaseService().updateGameCover(entry.filename, url);
-    final idx = _allGames.indexWhere((g) => g.filename == entry.filename);
-    if (idx >= 0) {
-      _allGames[idx] = LibraryEntry(
-        filename: entry.filename,
-        displayName: entry.displayName,
-        cardTitle: entry.cardTitle,
-        url: entry.url,
-        coverUrl: url,
-        systemSlug: entry.systemSlug,
-        providerConfig: entry.providerConfig,
-        hasThumbnail: entry.hasThumbnail,
-      );
-    }
+    _replaceEntry(entry, coverUrl: url);
   }
 
   Future<void> _onThumbnailNeeded(String url, LibraryEntry entry) async {
@@ -690,19 +1014,181 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         entry.filename,
         hasThumbnail: true,
       );
-      final idx = _allGames.indexWhere((g) => g.filename == entry.filename);
-      if (idx >= 0) {
-        _allGames[idx] = LibraryEntry(
+      _replaceEntry(entry, hasThumbnail: true);
+    }
+  }
+
+  // --- Multi-select (bulk uninstall) ---
+
+  bool get _canUseSelectButton =>
+      !isSearchActive &&
+      !showQuickMenu &&
+      !_confirmUninstall &&
+      !_uninstalling &&
+      _reorderState == ReorderState.none &&
+      ref.read(overlayPriorityProvider) == OverlayPriority.none;
+
+  /// X: start marking games; while marking, mark the game under the cursor
+  /// or every installed game of the platform under it.
+  void _handleSelectButton() {
+    if (!_selectMode) {
+      _enterSelectMode(mark: _focusedEntry);
+      return;
+    }
+    if (_cursor.kind == LibraryCursorKind.header) {
+      _toggleMarkSection(_cursor.index);
+    } else {
+      final entry = _focusedEntry;
+      if (entry != null) _toggleMark(entry);
+    }
+  }
+
+  void _enterSelectMode({LibraryEntry? mark}) {
+    if (_selectMode || _installedKeys.isEmpty) return;
+    ref.read(feedbackServiceProvider).tick();
+    setState(() {
+      _selectMode = true;
+      _marked.clear();
+      if (mark != null && _installedKeys.contains(mark.key)) {
+        _marked.add(mark.key);
+      }
+    });
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _selectMode = false;
+      _marked.clear();
+    });
+  }
+
+  void _toggleMark(LibraryEntry entry) {
+    if (!_installedKeys.contains(entry.key)) {
+      // Only installed games can be uninstalled.
+      ref.read(feedbackServiceProvider).cancel();
+      return;
+    }
+    ref.read(feedbackServiceProvider).tick();
+    setState(() {
+      if (!_marked.remove(entry.key)) _marked.add(entry.key);
+    });
+  }
+
+  List<String> _installedKeysIn(LibrarySection section) => [
+        for (var i = section.start; i < section.start + section.count; i++)
+          if (_installedKeys.contains(_filteredGames[i].key))
+            _filteredGames[i].key,
+      ];
+
+  void _toggleMarkSection(int index) {
+    if (index < 0 || index >= _sections.length) return;
+    final keys = _installedKeysIn(_sections[index]);
+    if (keys.isEmpty) {
+      ref.read(feedbackServiceProvider).cancel();
+      return;
+    }
+    ref.read(feedbackServiceProvider).tick();
+    setState(() {
+      if (keys.every(_marked.contains)) {
+        _marked.removeAll(keys);
+      } else {
+        _marked.addAll(keys);
+      }
+    });
+  }
+
+  void _requestUninstall() {
+    if (!_selectMode || _uninstalling || _confirmUninstall) return;
+    if (_marked.isEmpty) {
+      showConsoleNotification(context,
+          message: 'Mark at least one installed game first.');
+      return;
+    }
+    setState(() => _confirmUninstall = true);
+  }
+
+  void _cancelUninstall() {
+    setState(() => _confirmUninstall = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) requestScreenFocus();
+    });
+  }
+
+  /// Deletes the marked games' files from the device. They stay in the
+  /// library (on their source) and can be downloaded again.
+  Future<void> _uninstallMarked() async {
+    final byKey = {for (final g in _allGames) g.key: g};
+    final targets = [
+      for (final key in _marked)
+        if (byKey[key] case final entry?) entry,
+    ];
+    setState(() {
+      _confirmUninstall = false;
+      _uninstalling = true;
+    });
+
+    try {
+      // Game folders come from the config: wait for it rather than treat
+      // "still loading" as "nothing to delete".
+      final appConfig = await ref.read(bootstrappedConfigProvider.future);
+      final romManager = RomManager();
+      final db = DatabaseService();
+      for (final entry in targets) {
+        final system = _systemsById[entry.systemSlug];
+        if (system == null) continue;
+        final systemConfig =
+            ConfigBootstrap.configForSystem(appConfig, system);
+        final targetFolder = systemConfig?.targetFolder ?? '';
+        if (systemConfig == null || targetFolder.isEmpty) continue;
+        final game = GameItem(
           filename: entry.filename,
           displayName: entry.displayName,
-          cardTitle: entry.cardTitle,
           url: entry.url,
-          coverUrl: entry.coverUrl,
-          systemSlug: entry.systemSlug,
           providerConfig: entry.providerConfig,
-          hasThumbnail: true,
         );
+        await romManager.delete(game, system, targetFolder);
+        // A game that only exists on the device leaves the library with
+        // its file, as it does when deleted from its own page.
+        if (systemConfig.providers.isEmpty &&
+            !await romManager.exists(game, system, targetFolder)) {
+          await db.deleteGame(system.id, entry.filename);
+        }
       }
+    } catch (e) {
+      debugPrint('LibraryScreen: uninstall stopped early: $e');
+    }
+    if (!mounted) return;
+
+    // Re-scan what is on disk and count what is really gone.
+    ref.read(romChangeSignalProvider.notifier).state++;
+    ref.invalidate(visibleSystemsProvider);
+    try {
+      _installedFiles = (await ref.read(installedFilesProvider.future)).all;
+    } catch (e) {
+      debugPrint('LibraryScreen: installed files refresh failed: $e');
+      await _refreshInstalledFiles();
+    }
+    if (!mounted) return;
+    final left = targets.where(_isGameInstalled).toList();
+    final removed = targets.length - left.length;
+
+    setState(() {
+      _uninstalling = false;
+      _selectMode = false;
+      _marked.clear();
+    });
+    await _loadData(silent: true);
+    if (!mounted) return;
+    requestScreenFocus();
+
+    if (left.isEmpty) {
+      showSuccessNotification(context, ref,
+          message: 'Uninstalled $removed ${removed == 1 ? 'game' : 'games'}.');
+    } else {
+      showErrorNotification(context, ref,
+          message: 'Uninstalled $removed of ${targets.length}. Could not '
+              'remove: ${left.take(3).map((g) => g.displayName).join(', ')}'
+              '${left.length > 3 ? '…' : ''}');
     }
   }
 
@@ -734,11 +1220,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   void _grabItem() {
-    if (_filteredGames.isEmpty) return;
+    if (_cursor.kind != LibraryCursorKind.game || _filteredGames.isEmpty) return;
     ref.read(feedbackServiceProvider).confirm();
     setState(() {
       _reorderState = ReorderState.grabbed;
-      _grabbedIndex = _currentIndex;
+      _grabbedIndex = _cursor.index;
     });
   }
 
@@ -777,11 +1263,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     );
     _shelves = ref.read(customShelvesProvider);
     _applyFilters();
-    setState(() {
-      _grabbedIndex = targetIndex;
-      _currentIndex = targetIndex;
-    });
-    _scrollToSelected();
+    setState(() => _grabbedIndex = targetIndex);
+    _setCursor(LibraryCursor.game(targetIndex));
+    _scrollToCursor(instant: true);
   }
 
   // --- Shelf Management ---
@@ -801,9 +1285,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _shelves = ref.read(customShelvesProvider);
       setState(() {
         _selectedTab = _fixedTabCount + _shelves.length - 1;
-        _currentIndex = 0;
       });
-      _applyFilters();
+      _applyFilters(resetCursor: true);
       _scrollToTop();
     }
   }
@@ -832,15 +1315,13 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         _selectedTab = (_selectedTab - 1).clamp(0, _totalTabCount - 1);
       });
     }
-    _currentIndex = 0;
-    _applyFilters();
+    _applyFilters(resetCursor: true);
     _scrollToTop();
   }
 
   void _addCurrentGameToShelf() {
-    if (_currentIndex < 0 || _currentIndex >= _filteredGames.length) return;
-    if (_shelves.isEmpty) return;
-    final entry = _filteredGames[_currentIndex];
+    final entry = _focusedEntry;
+    if (entry == null || _shelves.isEmpty) return;
     final availableShelves = _shelves
         .where((s) => !s.containsGame(
             entry.filename, entry.displayName, entry.systemSlug))
@@ -860,9 +1341,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   void _removeCurrentGameFromShelf() {
     final shelf = _activeShelf;
-    if (shelf == null) return;
-    if (_currentIndex < 0 || _currentIndex >= _filteredGames.length) return;
-    final entry = _filteredGames[_currentIndex];
+    final entry = _focusedEntry;
+    if (shelf == null || entry == null) return;
     final matchesFilter = shelf.filterRules.any(
       (r) => r.matches(entry.displayName, entry.systemSlug),
     );
@@ -878,8 +1358,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   void _handleFavorite() {
-    if (_currentIndex < 0 || _currentIndex >= _filteredGames.length) return;
-    final entry = _filteredGames[_currentIndex];
+    final entry = _focusedEntry;
+    if (entry == null) return;
     ref.read(feedbackServiceProvider).tick();
     ref.read(favoriteGamesProvider.notifier).toggleFavorite(entry.filename);
     _favoriteIds = ref.read(favoriteGamesProvider).toSet();
@@ -888,17 +1368,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   List<QuickMenuItem?> _buildQuickMenuItems() {
     final l = L.of(context);
-    final sortLabel = _isShelfTab
-        ? switch (_activeShelf?.sortMode ?? ShelfSortMode.alphabetical) {
-            ShelfSortMode.alphabetical => l.library_sortSystem,
-            ShelfSortMode.bySystem => l.library_sortManual,
-            ShelfSortMode.manual => l.library_sortAZ,
-          }
-        : _sortMode == LibrarySortMode.alphabetical
-            ? l.library_sortSystem
-            : l.library_sortAZ;
     final hasDownloads = ref.read(hasQueueItemsProvider);
     final shelf = _activeShelf;
+    final focused = _focusedEntry;
+    final allExpanded =
+        _sections.isNotEmpty && _sections.every((s) => s.expanded);
     return [
       QuickMenuItem(
         label: l.library_zoomIn,
@@ -912,27 +1386,50 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         shortcutHint: 'R',
         onSelect: () => _adjustColumns(false),
       ),
-      QuickMenuItem(
-        label: l.common_search,
-        icon: Icons.search_rounded,
-        shortcutHint: 'Y',
-        onSelect: openSearch,
-      ),
-      if (_filteredGames.isNotEmpty) ...[
+      // Y uninstalls while multi-select is on, so search waits until it ends.
+      if (!_selectMode)
         QuickMenuItem(
-          label: _favoriteIds.contains(_filteredGames[_currentIndex].filename)
+          label: l.common_search,
+          icon: Icons.search_rounded,
+          shortcutHint: 'Y',
+          onSelect: openSearch,
+        ),
+      if (focused != null)
+        QuickMenuItem(
+          label: _favoriteIds.contains(focused.filename)
               ? l.common_unfavorite : l.common_favorite,
-          icon: _favoriteIds.contains(_filteredGames[_currentIndex].filename)
+          icon: _favoriteIds.contains(focused.filename)
               ? Icons.favorite_rounded : Icons.favorite_border_rounded,
           shortcutHint: '−',
           onSelect: _handleFavorite,
         ),
-      ],
-      QuickMenuItem(
-        label: sortLabel,
-        icon: Icons.sort_rounded,
-        onSelect: _cycleSortMode,
-      ),
+      if (_sectioned && _sections.isNotEmpty)
+        QuickMenuItem(
+          label: allExpanded ? 'Collapse all platforms' : 'Expand all platforms',
+          icon: allExpanded
+              ? Icons.unfold_less_rounded
+              : Icons.unfold_more_rounded,
+          onSelect: () => _setAllExpanded(!allExpanded),
+        ),
+      if (!_selectMode &&
+          _installedKeys.isNotEmpty &&
+          _reorderState == ReorderState.none)
+        QuickMenuItem(
+          label: 'Select games to uninstall',
+          icon: Icons.checklist_rounded,
+          shortcutHint: 'X',
+          onSelect: _enterSelectMode,
+        ),
+      if (shelf != null)
+        QuickMenuItem(
+          label: switch (shelf.sortMode) {
+            ShelfSortMode.alphabetical => l.library_sortSystem,
+            ShelfSortMode.bySystem => l.library_sortManual,
+            ShelfSortMode.manual => l.library_sortAZ,
+          },
+          icon: Icons.sort_rounded,
+          onSelect: _cycleShelfSortMode,
+        ),
       // --- Shelf management ---
       null,
       QuickMenuItem(
@@ -946,16 +1443,14 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           icon: Icons.edit_rounded,
           onSelect: _editShelf,
         ),
-      if (_filteredGames.isNotEmpty && _shelves.any((s) => !s.containsGame(
-          _filteredGames[_currentIndex].filename,
-          _filteredGames[_currentIndex].displayName,
-          _filteredGames[_currentIndex].systemSlug)))
+      if (focused != null && _shelves.any((s) => !s.containsGame(
+          focused.filename, focused.displayName, focused.systemSlug)))
         QuickMenuItem(
           label: l.library_addToShelf,
           icon: Icons.add_rounded,
           onSelect: _addCurrentGameToShelf,
         ),
-      if (shelf != null && _filteredGames.isNotEmpty)
+      if (shelf != null && focused != null)
         QuickMenuItem(
           label: l.library_removeFromShelf,
           icon: Icons.remove_rounded,
@@ -989,6 +1484,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _debouncer.stopHold();
       return KeyEventResult.ignored;
     }
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.gameButtonX &&
+        _canUseSelectButton) {
+      _handleSelectButton();
+      return KeyEventResult.handled;
+    }
     return KeyEventResult.ignored;
   }
 
@@ -1004,9 +1505,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         // Folder match (multi-file games)
         if (_installedFiles.contains(stripped)) return true;
         // ROM extension replacement (like RomManager.getTargetFilename)
-        final system = SystemModel.supportedSystems
-            .where((s) => s.id == entry.systemSlug)
-            .firstOrNull;
+        final system = _systemsById[entry.systemSlug];
         if (system != null) {
           for (final romExt in system.romExtensions) {
             if (_installedFiles.contains('$stripped$romExt')) return true;
@@ -1039,21 +1538,52 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     return seen.values.toList();
   }
 
-  int get _allCount => _allGames.length;
-
-  int get _installedCount =>
-      _deduplicateInstalled(
-        _allGames.where((g) => _isGameInstalled(g)).toList(),
-      ).length;
-
   int get _favoritesCount =>
       _allGames.where((g) => _favoriteIds.contains(g.filename)).length;
 
   // --- Build ---
 
+  /// Tile size and row heights for this screen size and zoom level.
+  void _updateGeometry(Responsive rs) {
+    final side = rs.spacing.lg;
+    final spacing = rs.isSmall ? 10.0 : 14.0;
+    if (_columns == 0) {
+      // No saved zoom level: as many covers per row as fit comfortably.
+      _columns = ((rs.screenWidth - 2 * side) / _autoTileWidth)
+          .floor()
+          .clamp(_minColumns, _maxColumns);
+    }
+    final tileWidth = math.max(
+        1.0, (rs.screenWidth - 2 * side - (_columns - 1) * spacing) / _columns);
+    final bottomPadding = rs.isPortrait ? 80.0 : 100.0;
+    if (side == _side &&
+        spacing == _spacing &&
+        tileWidth == _tileWidth &&
+        bottomPadding == _metrics.bottomPadding) {
+      return;
+    }
+    _side = side;
+    _spacing = spacing;
+    _tileWidth = tileWidth;
+    final tileHeight = tileWidth / _tileAspect;
+    _metrics = LibraryMetrics(
+      topPadding: rs.spacing.md,
+      bottomPadding: bottomPadding,
+      recentsHeight: _recentsLabelHeight(rs) + tileHeight + _recentsGap,
+      headerHeight: (rs.isSmall ? 38.0 : 44.0) + _headerGap,
+      tileHeight: tileHeight,
+      rowSpacing: spacing,
+      sectionGap: _sectionGap,
+    );
+    _layout = _newLayout();
+  }
+
+  static double _recentsLabelHeight(Responsive rs) => rs.isSmall ? 22.0 : 26.0;
+
   @override
   Widget build(BuildContext context) {
     final rs = context.rs;
+    _updateGeometry(rs);
     final baseTopPadding = rs.safeAreaTop + (rs.isSmall ? 72 : 96);
     final searchExtraPadding = isSearchActive ? (rs.isSmall ? 16.0 : 20.0) : 0.0;
     final topPadding = baseTopPadding + searchExtraPadding;
@@ -1077,13 +1607,38 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               _buildHeader(rs),
               // Search bar
               if (isSearchActive) _buildSearchBar(),
-              // HUD
-              if (!showQuickMenu) _buildHud(),
+              // HUD (its hints follow the cursor)
+              if (!showQuickMenu && !_confirmUninstall)
+                ValueListenableBuilder<int>(
+                  valueListenable: _selectedIdNotifier,
+                  builder: (context, _, __) => _buildHud(),
+                ),
               // Quick Menu
               if (showQuickMenu)
                 QuickMenuOverlay(
                   items: _buildQuickMenuItems(),
                   onClose: closeQuickMenu,
+                ),
+              if (_uninstalling)
+                const Positioned.fill(
+                  child: ColoredBox(
+                    color: Color(0x99000000),
+                    child: Center(
+                      child: CircularProgressIndicator(color: Colors.cyanAccent),
+                    ),
+                  ),
+                ),
+              if (_confirmUninstall)
+                ExitConfirmationOverlay(
+                  icon: Icons.delete_outline_rounded,
+                  title: _marked.length == 1
+                      ? 'Uninstall 1 game?'
+                      : 'Uninstall ${_marked.length} games?',
+                  message: 'Their files are deleted from this device. They '
+                      'stay in your library and can be downloaded again.',
+                  confirmLabel: 'UNINSTALL',
+                  onConfirm: _uninstallMarked,
+                  onCancel: _cancelUninstall,
                 ),
             ],
           ),
@@ -1095,8 +1650,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   Widget _buildHeader(Responsive rs) {
     final l = L.of(context);
-    final fixedLabels = [l.library_tabAll, l.library_tabInstalled, l.library_tabFavorites];
-    final fixedCounts = [_allCount, _installedCount, _favoritesCount];
+    final fixedLabels = [
+      l.library_tabInstalled,
+      'Available',
+      l.library_tabAll,
+      l.library_tabFavorites,
+    ];
+    final fixedCounts = [
+      _installedCount,
+      _availableCount,
+      _allGames.length,
+      _favoritesCount,
+    ];
+    final shelf = _activeShelf;
 
     final tabs = <LibraryTab>[
       for (int i = 0; i < _fixedTabCount; i++)
@@ -1150,34 +1716,19 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                       ),
                     ),
                     const Spacer(),
-                    // Sort indicator
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
+                    if (_selectMode)
+                      _headerChip(rs, '${_marked.length} MARKED TO UNINSTALL',
+                          color: Colors.redAccent)
+                    else if (shelf != null)
+                      // Sort indicator (platform tabs are always grouped)
+                      _headerChip(
+                        rs,
+                        switch (shelf.sortMode) {
+                          ShelfSortMode.alphabetical => l.library_sortIndicatorAZ,
+                          ShelfSortMode.bySystem => l.library_sortIndicatorBySystem,
+                          ShelfSortMode.manual => l.library_sortIndicatorManual,
+                        },
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        _isShelfTab
-                            ? switch (_activeShelf?.sortMode ?? ShelfSortMode.alphabetical) {
-                                ShelfSortMode.alphabetical => l.library_sortIndicatorAZ,
-                                ShelfSortMode.bySystem => l.library_sortIndicatorBySystem,
-                                ShelfSortMode.manual => l.library_sortIndicatorManual,
-                              }
-                            : _sortMode == LibrarySortMode.alphabetical
-                                ? l.library_sortIndicatorAZ
-                                : l.library_sortIndicatorBySystem,
-                        style: TextStyle(
-                          fontSize: rs.isSmall ? 9 : 10,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[400],
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
                 SizedBox(height: rs.isSmall ? 6 : 10),
@@ -1190,6 +1741,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _headerChip(Responsive rs, String label, {Color? color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 3,
+      ),
+      decoration: BoxDecoration(
+        color: (color ?? Colors.white).withValues(alpha: color == null ? 0.08 : 0.16),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: rs.isSmall ? 9 : 10,
+          fontWeight: FontWeight.w600,
+          color: color ?? Colors.grey[400],
+          letterSpacing: 1,
         ),
       ),
     );
@@ -1224,10 +1797,17 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       if (_searchQuery.isNotEmpty) {
         title = l.library_noResults(_searchQuery);
         subtitle = l.library_tryShorterSearch;
-      } else if (_selectedTab == 1) {
+      } else if (_selectedTab == _tabInstalled) {
         title = l.library_noInstalledGames;
         subtitle = l.library_downloadGamesToSee;
-      } else if (_selectedTab == 2) {
+      } else if (_selectedTab == _tabAvailable) {
+        title = _allGames.isEmpty
+            ? l.library_noGamesInLibrary
+            : 'Nothing left to download';
+        subtitle = _allGames.isEmpty
+            ? l.library_gamesAfterSync
+            : 'Every game from your sources is installed';
+      } else if (_selectedTab == _tabFavorites) {
         title = l.library_noFavoritesYet;
         subtitle = l.library_pressFavoriteHint;
       } else if (_isShelfTab) {
@@ -1261,146 +1841,275 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
 
     final deviceMemory = ref.read(deviceMemoryProvider);
-    final gridPadding = rs.spacing.lg * 2;
-    final spacing = rs.isSmall ? 10.0 : 16.0;
-    final gridWidth = MediaQuery.of(context).size.width - gridPadding;
-    final itemWidth = (gridWidth - (_columns - 1) * spacing) / _columns;
     final dpr = MediaQuery.of(context).devicePixelRatio;
-    final optimalCacheWidth =
-        (itemWidth * dpr).round().clamp(150, deviceMemory.memCacheWidthMax);
+    final cacheWidth =
+        (_tileWidth * dpr).round().clamp(150, deviceMemory.memCacheWidthMax);
 
     return NotificationListener<ScrollNotification>(
       onNotification: _handleScrollNotification,
       child: RepaintBoundary(
-        child: GridView.builder(
-        cacheExtent: deviceMemory.libraryCacheExtent,
-        controller: _scrollController,
-        padding: EdgeInsets.only(
-          left: rs.spacing.lg,
-          right: rs.spacing.lg,
-          top: rs.spacing.md,
-          bottom: rs.isPortrait ? 80 : 100,
+        child: CustomScrollView(
+          cacheExtent: deviceMemory.libraryCacheExtent,
+          controller: _scrollController,
+          slivers: [
+            SliverToBoxAdapter(child: SizedBox(height: _metrics.topPadding)),
+            if (_showRecents)
+              SliverToBoxAdapter(child: _buildRecents(rs, cacheWidth)),
+            for (var s = 0; s < _sections.length; s++) ...[
+              if (_sections[s].hasHeader)
+                SliverToBoxAdapter(
+                  key: ValueKey('header-${_sections[s].key}'),
+                  child: _buildSectionHeader(s),
+                ),
+              if (_sections[s].showsGames)
+                SliverPadding(
+                  key: ValueKey('games-${_sections[s].key}'),
+                  padding: EdgeInsets.only(
+                    left: _side,
+                    right: _side,
+                    bottom: _metrics.sectionGap,
+                  ),
+                  sliver: _buildSectionGrid(_sections[s], cacheWidth),
+                ),
+            ],
+            SliverToBoxAdapter(child: SizedBox(height: _metrics.bottomPadding)),
+          ],
         ),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: _columns,
-          mainAxisSpacing: rs.isSmall ? 10 : 16,
-          crossAxisSpacing: rs.isSmall ? 10 : 16,
-          childAspectRatio: 1.0,
-        ),
-        itemCount: _filteredGames.length,
-        itemBuilder: (context, index) {
-        final entry = _filteredGames[index];
-        final isInstalled = _isGameInstalled(entry);
-        final isFavorite = _favoriteIds.contains(entry.filename);
+      ),
+    );
+  }
 
-        final coverUrls = _coverUrlCache[index] ?? const [];
-
-        final systemModel = SystemModel.supportedSystems
-            .where((s) => s.id == entry.systemSlug)
-            .firstOrNull;
-
-        // Short system label for badge
-        final systemLabel = _systemShortLabel(entry.systemSlug);
-        final systemColor =
-            systemModel?.accentColor ?? Colors.grey;
-
-        final raMatch = _raMatches[entry.filename];
-
-        // Source dot lookup — entry.providerConfig is rehydrated from
-        // the games DB; if it was synthesised by SourceResolver it
-        // carries a sourceId we can map back to a live Source.
-        final sourcesState = ref.watch(sourcesProvider);
-        final entrySourceId = entry.providerConfig?.sourceId;
-        Source? entrySource;
-        if (entrySourceId != null) {
-          for (final s in sourcesState.sources) {
-            if (s.id == entrySourceId) {
-              entrySource = s;
-              break;
-            }
-          }
-        }
-        final entryDotColor =
-            entrySource == null ? null : sourceDotColorFor(entrySource);
-        final entryDotBorrowed = entrySource?.borrowed ?? false;
-
-        // Library entries don't carry alternativeSources today (they
-        // come from a flat DB row), so the extras list is always empty.
-        // Wired through anyway so adding multi-source DB support later
-        // only needs to populate this list.
-        const List<SourceDotData> entryExtraDots = [];
-        final isGrabbed = _reorderState == ReorderState.grabbed && _grabbedIndex == index;
-        final isReordering = _reorderState != ReorderState.none;
-
-        Widget card = RepaintBoundary(
-          key: _itemKeys[index],
-          child: SelectionAwareItem(
-            selectedIndexNotifier: _selectedIndexNotifier,
-            index: index,
-            builder: (isSelected) => BaseGameCard(
-              displayName: entry.cardTitle,
-              systemLabel: systemLabel,
-              accentColor: systemColor,
-              coverUrls: coverUrls,
-              cachedUrl: entry.coverUrl,
-              hasThumbnail: entry.hasThumbnail,
-              memCacheWidth: optimalCacheWidth,
-              scrollSuppression: _scrollSuppression,
-              isInstalled: isInstalled,
-              isSelected: isSelected,
-              isFavorite: isFavorite,
-              raAchievementCount: raMatch?.achievementCount,
-              raMatchType: raMatch?.type ?? RaMatchType.none,
-              isMastered: raMatch?.isMastered ?? false,
-              sourceDotColor: entryDotColor,
-              sourceDotBorrowed: entryDotBorrowed,
-              extraSourceDots: entryExtraDots,
-              onCoverFound: (url) => _onCoverFound(url, entry),
-              onThumbnailNeeded: (url) => _onThumbnailNeeded(url, entry),
-              onTap: () {
-                if (_reorderState == ReorderState.selecting) {
-                  _currentIndex = index;
-                  _grabItem();
-                  return;
-                }
-                if (_reorderState == ReorderState.grabbed) return;
-                if (_currentIndex == index) {
-                  _openGameDetail(entry);
-                } else {
-                  _currentIndex = index;
-                  ref.read(feedbackServiceProvider).tick();
-                }
-              },
-              onTapSelect: () {
-                if (_reorderState != ReorderState.none) return;
-                if (_currentIndex != index) {
-                  _currentIndex = index;
-                  ref.read(feedbackServiceProvider).tick();
-                }
-              },
-              onLongPress: isReordering ? null : () {
-                if (_isShelfTab && _activeShelf?.sortMode == ShelfSortMode.manual) {
-                  _currentIndex = index;
-                  _enterReorderMode();
-                  _grabItem();
-                }
-              },
+  Widget _buildRecents(Responsive rs, int cacheWidth) {
+    return SizedBox(
+      height: _metrics.recentsHeight,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: _recentsLabelHeight(rs),
+            child: Padding(
+              padding: EdgeInsets.only(left: _side),
+              child: Text(
+                'RECENTLY PLAYED',
+                style: TextStyle(
+                  fontSize: rs.isSmall ? 10 : 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.grey[500],
+                  letterSpacing: 1.5,
+                ),
+              ),
             ),
           ),
-        );
+          SizedBox(
+            height: _metrics.tileHeight,
+            child: ListView.builder(
+              controller: _recentsController,
+              scrollDirection: Axis.horizontal,
+              // The focused tile grows past the row's edges.
+              clipBehavior: Clip.none,
+              padding: EdgeInsets.symmetric(horizontal: _side),
+              itemExtent: _tileWidth + _spacing,
+              itemCount: _recents.length,
+              itemBuilder: (context, index) => Padding(
+                padding: EdgeInsets.only(right: _spacing),
+                child: _buildGameTile(
+                  _recents[index],
+                  LibraryCursor.recent(index),
+                  cacheWidth,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-        if (isReordering) {
-          card = ReorderableCardWrapper(
-            isJiggling: _reorderState == ReorderState.selecting,
-            isGrabbed: isGrabbed,
-            child: card,
+  Widget _buildSectionHeader(int index) {
+    final section = _sections[index];
+    final system = _systemsById[section.key];
+    final cursor = LibraryCursor.header(index);
+    final markedCount = _selectMode
+        ? _installedKeysIn(section).where(_marked.contains).length
+        : 0;
+    return SizedBox(
+      height: _metrics.headerHeight,
+      child: Padding(
+        padding: EdgeInsets.only(left: _side, right: _side, bottom: _headerGap),
+        child: SelectionAwareItem(
+          selectedIndexNotifier: _selectedIdNotifier,
+          index: cursor.id,
+          builder: (isSelected) => LibrarySectionHeader(
+            title: _systemName(section.key),
+            count: section.count,
+            expanded: section.expanded,
+            isSelected: isSelected,
+            accentColor: system?.iconColor ?? Colors.grey,
+            iconAsset: system == null || system.iconName.isEmpty
+                ? null
+                : system.iconAssetPath,
+            markedCount: markedCount,
+            onTap: () {
+              _setCursor(cursor);
+              _toggleSection(index);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionGrid(LibrarySection section, int cacheWidth) {
+    return SliverGrid(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: _columns,
+        mainAxisSpacing: _metrics.rowSpacing,
+        crossAxisSpacing: _spacing,
+        mainAxisExtent: _metrics.tileHeight,
+      ),
+      delegate: SliverChildBuilderDelegate(
+        (context, i) {
+          final index = section.start + i;
+          return _buildGameTile(
+            _filteredGames[index],
+            LibraryCursor.game(index),
+            cacheWidth,
           );
-        }
+        },
+        childCount: section.count,
+      ),
+    );
+  }
 
-        return card;
-      },
+  Widget _buildGameTile(LibraryEntry entry, LibraryCursor cursor, int cacheWidth) {
+    final isInstalled = _installedKeys.contains(entry.key);
+    final systemModel = _systemsById[entry.systemSlug];
+    final raMatch = _raMatches[entry.filename];
+    // Platform sections already say which system a game is for, and every
+    // game in the Installed tab or the recents row is installed.
+    final inSection =
+        cursor.kind == LibraryCursorKind.game && _sectioned;
+    final showInstalled = isInstalled &&
+        cursor.kind == LibraryCursorKind.game &&
+        _selectedTab != _tabInstalled;
+
+    // Source dot lookup — entry.providerConfig is rehydrated from
+    // the games DB; if it was synthesised by SourceResolver it
+    // carries a sourceId we can map back to a live Source.
+    final sourcesState = ref.watch(sourcesProvider);
+    final entrySourceId = entry.providerConfig?.sourceId;
+    Source? entrySource;
+    if (entrySourceId != null) {
+      for (final s in sourcesState.sources) {
+        if (s.id == entrySourceId) {
+          entrySource = s;
+          break;
+        }
+      }
+    }
+    final entryDotColor =
+        entrySource == null ? null : sourceDotColorFor(entrySource);
+    final entryDotBorrowed = entrySource?.borrowed ?? false;
+
+    // Library entries don't carry alternativeSources today (they
+    // come from a flat DB row), so the extras list is always empty.
+    // Wired through anyway so adding multi-source DB support later
+    // only needs to populate this list.
+    const List<SourceDotData> entryExtraDots = [];
+    final isGrabbed = _reorderState == ReorderState.grabbed &&
+        cursor.kind == LibraryCursorKind.game &&
+        _grabbedIndex == cursor.index;
+    final isReordering = _reorderState != ReorderState.none;
+
+    Widget card = RepaintBoundary(
+      child: SelectionAwareItem(
+        selectedIndexNotifier: _selectedIdNotifier,
+        index: cursor.id,
+        builder: (isSelected) => BaseGameCard(
+          displayName: entry.cardTitle,
+          systemLabel: inSection ? null : _systemShortLabel(entry.systemSlug),
+          accentColor: systemModel?.accentColor ?? Colors.grey,
+          coverUrls: _coverUrlsFor(entry),
+          cachedUrl: entry.coverUrl,
+          hasThumbnail: entry.hasThumbnail,
+          memCacheWidth: cacheWidth,
+          scrollSuppression: _scrollSuppression,
+          isInstalled: showInstalled,
+          isSelected: isSelected,
+          // The mark badge takes the top-right corner while selecting.
+          isFavorite: !_selectMode && _favoriteIds.contains(entry.filename),
+          raAchievementCount: _selectMode ? null : raMatch?.achievementCount,
+          raMatchType: raMatch?.type ?? RaMatchType.none,
+          isMastered: raMatch?.isMastered ?? false,
+          sourceDotColor: entryDotColor,
+          sourceDotBorrowed: entryDotBorrowed,
+          extraSourceDots: entryExtraDots,
+          onCoverFound: (url) => _onCoverFound(url, entry),
+          onThumbnailNeeded: (url) => _onThumbnailNeeded(url, entry),
+          onTap: () {
+            if (_reorderState == ReorderState.selecting) {
+              _setCursor(cursor);
+              _grabItem();
+              return;
+            }
+            if (_reorderState == ReorderState.grabbed) return;
+            if (_selectMode) {
+              _setCursor(cursor);
+              _toggleMark(entry);
+            } else if (_cursor == cursor) {
+              _openGameDetail(entry);
+            } else {
+              _setCursor(cursor);
+              ref.read(feedbackServiceProvider).tick();
+            }
+          },
+          onTapSelect: () {
+            if (_reorderState != ReorderState.none) return;
+            if (_cursor != cursor) {
+              _setCursor(cursor);
+              ref.read(feedbackServiceProvider).tick();
+            }
+          },
+          onLongPress: isReordering ? null : () {
+            _setCursor(cursor);
+            if (_isShelfTab && _activeShelf?.sortMode == ShelfSortMode.manual) {
+              _enterReorderMode();
+              _grabItem();
+            } else if (!_selectMode && !isSearchActive) {
+              _enterSelectMode(mark: entry);
+            }
+          },
+        ),
       ),
-      ),
+    );
+
+    // Multi-select: installed games get a mark, the rest fade back.
+    card = Stack(
+      fit: StackFit.expand,
+      children: [
+        Opacity(opacity: _selectMode && !isInstalled ? 0.35 : 1, child: card),
+        if (_selectMode && isInstalled)
+          Positioned(
+            top: 6,
+            right: 6,
+            child: IgnorePointer(
+              child: _MarkBadge(marked: _marked.contains(entry.key)),
+            ),
+          ),
+      ],
+    );
+
+    if (isReordering) {
+      card = ReorderableCardWrapper(
+        isJiggling: _reorderState == ReorderState.selecting,
+        isGrabbed: isGrabbed,
+        child: card,
+      );
+    }
+
+    return KeyedSubtree(
+      key: ValueKey('${cursor.kind.name}-${entry.key}'),
+      child: card,
     );
   }
 
@@ -1408,7 +2117,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final l = L.of(context);
     if (_reorderState == ReorderState.grabbed) {
       return ConsoleHud(
-        dpad: (label: '\u2190\u2191\u2193\u2192', action: l.common_move),
+        dpad: (label: '←↑↓→', action: l.common_move),
         a: HudAction(l.common_drop, onTap: _dropItem),
         b: HudAction(l.common_cancel, onTap: _dropItem),
       );
@@ -1419,15 +2128,38 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         b: HudAction(l.common_done, onTap: _exitReorderMode),
       );
     }
+
+    final onHeader = _cursor.kind == LibraryCursorKind.header &&
+        _cursor.index < _sections.length;
+    final headerAction = onHeader
+        ? HudAction(
+            _sections[_cursor.index].expanded ? 'Collapse' : 'Expand',
+            onTap: _handleConfirm)
+        : null;
+
+    if (_selectMode) {
+      return ConsoleHud(
+        a: headerAction ?? HudAction('Mark', onTap: _handleConfirm),
+        x: onHeader
+            ? HudAction('Mark platform', onTap: _handleSelectButton)
+            : null,
+        y: HudAction('Uninstall (${_marked.length})',
+            onTap: _requestUninstall, highlight: _marked.isNotEmpty),
+        b: HudAction(l.common_cancel, onTap: _exitSelectMode),
+      );
+    }
     if (isSearchActive) {
       return buildSearchHud(
-        aAction: HudAction(l.common_select, onTap: _openSelectedGame),
+        aAction: HudAction(l.common_select, onTap: _handleConfirm),
       );
     }
 
     return ConsoleHud(
-      a: HudAction(l.common_select, onTap: _openSelectedGame),
+      a: headerAction ?? HudAction(l.common_select, onTap: _handleConfirm),
       b: HudAction(l.common_back, onTap: () => Navigator.pop(context)),
+      x: _installedKeys.isEmpty
+          ? null
+          : HudAction('Multi-select', onTap: _handleSelectButton),
       start: HudAction(l.common_menu, onTap: toggleQuickMenu),
     );
   }
@@ -1468,3 +2200,27 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 }
 
+/// Check circle on a tile while marking games to uninstall.
+class _MarkBadge extends StatelessWidget {
+  final bool marked;
+  const _MarkBadge({required this.marked});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: marked ? Colors.redAccent : Colors.black.withValues(alpha: 0.6),
+        border: Border.all(
+          color: marked ? Colors.white : Colors.white.withValues(alpha: 0.7),
+          width: 1.5,
+        ),
+      ),
+      child: marked
+          ? const Icon(Icons.check_rounded, size: 15, color: Colors.white)
+          : null,
+    );
+  }
+}

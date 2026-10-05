@@ -20,4 +20,10 @@ class LibraryEntry {
     this.providerConfig,
     this.hasThumbnail = false,
   });
+
+  /// Identity across tabs and reloads: a filename is unique per system.
+  String get key => '$systemSlug/$filename';
+
+  /// Comes from a source, so it can be downloaded when not installed.
+  bool get isRemote => url.isNotEmpty || providerConfig != null;
 }

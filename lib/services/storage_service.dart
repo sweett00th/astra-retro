@@ -195,9 +195,9 @@ class StorageService {
     return result;
   }
 
-  int getGridColumns(String systemName) {
+  int getGridColumns(String systemName, {int fallback = 4}) {
     _ensureInitialized();
-    return _prefs!.getInt('$_gridColumnsPrefix$systemName') ?? 4;
+    return _prefs!.getInt('$_gridColumnsPrefix$systemName') ?? fallback;
   }
 
   Future<void> setGridColumns(String systemName, int columns) async {
