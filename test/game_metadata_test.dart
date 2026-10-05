@@ -345,6 +345,19 @@ void main() {
       expect(GameMetadata.fileTitle('Game [!].zip'), equals('Game [!]'));
     });
 
+    test('Switch title IDs and build numbers are dropped', () {
+      expect(
+          GameMetadata.fileTitle('Metroid Dread [010093801237C000][v0].nsp'),
+          equals('Metroid Dread'));
+      expect(
+          GameMetadata.fileTitle(
+              'Super Mario Odyssey (USA) [0100000000010000][v131072].xci'),
+          equals('Super Mario Odyssey (USA)'));
+      // Other bracket tags stay.
+      expect(GameMetadata.fileTitle('Game [b1] [T+Eng].zip'),
+          equals('Game [b1] [T+Eng]'));
+    });
+
     test('Underscores are replaced with spaces', () {
       expect(GameMetadata.fileTitle('Game_Name_(USA).zip'),
           equals('Game Name (USA)'));

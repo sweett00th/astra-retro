@@ -75,6 +75,10 @@ class GameMetadata {
     return name;
   }
 
+  /// Switch dumps carry a 16-digit title ID and a build number, e.g.
+  /// `[010093801237C000][v0]`: noise on a tile, unlike region or revision.
+  static final _switchIdTags = RegExp(r'\s*\[(?:[0-9A-Fa-f]{16}|v\d+)\]');
+
   /// Like [cleanTitle] but preserves parenthesized/bracketed tags (region,
   /// version, etc.) so that multiple ROM variants remain distinguishable.
   static String fileTitle(String filename) {
@@ -86,6 +90,7 @@ class GameMetadata {
         break;
       }
     }
+    name = name.replaceAll(_switchIdTags, '');
     name = name.replaceAll('_', ' ');
     name = name.replaceAll(RegExp(r'\s+'), ' ').trim();
     return name;
