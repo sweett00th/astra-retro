@@ -1,6 +1,7 @@
 package com.retro.rshop
 
 import android.content.Context
+import android.content.Intent
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
@@ -31,6 +32,7 @@ class MainActivity : FlutterActivity() {
     private var progressSink: EventChannel.EventSink? = null
     private var smbProgressSink: EventChannel.EventSink? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var safStorage: SafStorage? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +71,13 @@ class MainActivity : FlutterActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.retro.rshop/launcher")
             .setMethodCallHandler(EmulatorLauncher(applicationContext))
+
+        // System files are saved into folders the user grants (see SafStorage).
+        val saf = SafStorage(this).also { safStorage = it }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.retro.rshop/saf")
+            .setMethodCallHandler(saf)
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "com.retro.rshop/saf_progress")
+            .setStreamHandler(saf)
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, PROGRESS_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
@@ -212,9 +221,15 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (safStorage?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun onDestroy() {
         extractorPool.shutdown()
         smbService.shutdown()
+        safStorage?.shutdown()
         try {
             multicastLock?.takeIf { it.isHeld }?.release()
         } catch (e: Exception) {
