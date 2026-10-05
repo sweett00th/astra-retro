@@ -270,7 +270,8 @@ void main() {
 
     testWidgets('has chevron icons for nav tiles', (tester) async {
       await tester.pumpWidget(buildTab());
-      expect(find.byIcon(Icons.chevron_right), findsNWidgets(3));
+      // Sources, Console settings, Emulators, RetroAchievements.
+      expect(find.byIcon(Icons.chevron_right), findsNWidgets(4));
     });
   });
 
