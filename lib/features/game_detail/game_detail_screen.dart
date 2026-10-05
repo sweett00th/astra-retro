@@ -24,6 +24,7 @@ import '../../providers/shelf_providers.dart';
 import '../../services/download_queue_manager.dart';
 import '../../services/emulator_service.dart';
 import '../../services/input_debouncer.dart';
+import '../../services/recently_played_store.dart';
 import '../../services/rom_manager.dart';
 import '../../utils/friendly_error.dart';
 import '../emulators/emulator_picker_screen.dart';
@@ -423,7 +424,8 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
       return;
     }
     try {
-      final prefs = EmulatorPreferences(await SharedPreferences.getInstance());
+      final sharedPrefs = await SharedPreferences.getInstance();
+      final prefs = EmulatorPreferences(sharedPrefs);
       final service = EmulatorService();
       final option = await service.resolve(system.id, game.filename, prefs);
       final core = option.definition.cores[system.id];
@@ -447,6 +449,7 @@ class _GameDetailScreenState extends ConsumerState<GameDetailScreen>
         await prefs.setCoreConfirmed(core);
       }
       await service.launch(option, path, system.id);
+      await RecentlyPlayedStore(sharedPrefs).record(system.id, game.filename);
     } catch (e) {
       if (mounted) {
         showErrorNotification(context, ref, message: getUserFriendlyError(e));
