@@ -20,6 +20,7 @@ class LocalFolderMatcher {
     'psx': ['ps1', 'playstation', 'playstation1'],
     'ps2': ['playstation2'],
     'ps3': ['playstation3'],
+    'ps4': ['playstation4'],
     'psp': ['playstationportable'],
     'psvita': ['vita'],
     'mastersystem': ['sms', 'segamastersystem'],

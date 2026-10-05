@@ -270,6 +270,19 @@ class SystemModel {
       iconName: 'playstation3_flat.svg',
       accentColor: Color(0xFF1E293B),
     ),
+    // A game is a folder on the server (its .pkg files, or an unpacked dump
+    // with eboot.bin), kept as a folder on download.
+    SystemModel(
+      id: 'ps4',
+      name: 'PlayStation 4',
+      manufacturer: 'Sony',
+      releaseYear: 2013,
+      isZipped: false,
+      romExtensions: ['.pkg'],
+      multiFileExtensions: ['.pkg', '.bin', '.ps4'],
+      iconName: 'playstation4_flat.svg',
+      accentColor: Color(0xFF003791),
+    ),
     SystemModel(
       id: 'psp',
       name: 'PlayStation Portable',

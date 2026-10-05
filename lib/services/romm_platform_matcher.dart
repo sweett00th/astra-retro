@@ -19,6 +19,7 @@ class RommPlatformMatcher {
     'psx': 7,
     'ps2': 8,
     'ps3': 9,
+    'ps4': 48,
     'psp': 38,
     'psvita': 46,
     'mastersystem': 64,
