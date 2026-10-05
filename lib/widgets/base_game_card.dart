@@ -41,6 +41,11 @@ class BaseGameCard extends StatelessWidget {
   /// borrowed (read-only / shared) source.
   final bool sourceDotBorrowed;
 
+  /// Optional glowing outline in this colour (the library uses it to show
+  /// whether a game is on the device or only on a source). `null` keeps the
+  /// plain hairline border.
+  final Color? glowColor;
+
   // Download status overlay
   final DownloadStatus? downloadStatus;
   final double downloadProgress;
@@ -86,6 +91,7 @@ class BaseGameCard extends StatelessWidget {
     this.sourceDotColor,
     this.sourceDotBorrowed = false,
     this.extraSourceDots,
+    this.glowColor,
     this.downloadStatus,
     this.downloadProgress = 0.0,
   });
@@ -113,8 +119,23 @@ class BaseGameCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(borderRadius),
             border: isSelected
                 ? Border.all(color: Colors.white, width: borderSelected)
-                : Border.all(
-                    color: Colors.white.withValues(alpha: 0.08), width: 1),
+                : glowColor != null
+                    ? Border.all(
+                        color: glowColor!.withValues(alpha: 0.9), width: 1.5)
+                    : Border.all(
+                        color: Colors.white.withValues(alpha: 0.08), width: 1),
+            // The glow stays (stronger) under the white focus border, so a
+            // focused tile still shows its colour.
+            boxShadow: glowColor == null
+                ? null
+                : [
+                    BoxShadow(
+                      color: glowColor!
+                          .withValues(alpha: isSelected ? 0.85 : 0.6),
+                      blurRadius: isSelected ? 20 : 12,
+                      spreadRadius: isSelected ? 2 : 0.5,
+                    ),
+                  ],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(innerBorderRadius),
