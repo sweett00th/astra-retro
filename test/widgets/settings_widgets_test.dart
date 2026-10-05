@@ -251,6 +251,13 @@ void main() {
       expect(find.text('RetroAchievements'), findsOneWidget);
     });
 
+    testWidgets('renders RomDrop navigation tile', (tester) async {
+      await tester.pumpWidget(buildTab());
+      expect(find.text('RomDrop'), findsOneWidget);
+      expect(find.text('Server for BIOS, firmware and key files'),
+          findsOneWidget);
+    });
+
     testWidgets('renders Home Layout toggle', (tester) async {
       await tester.pumpWidget(buildTab());
       expect(find.text('HOME LAYOUT'), findsOneWidget);
@@ -264,14 +271,17 @@ void main() {
 
     testWidgets('renders Controller Buttons cycle', (tester) async {
       await tester.pumpWidget(buildTab());
+      // The list builds rows as they come into view, and this one is below
+      // the fold of the test surface.
+      await tester.scrollUntilVisible(find.text('CONTROLLER BUTTONS'), 100);
       expect(find.text('CONTROLLER BUTTONS'), findsOneWidget);
       expect(find.text('NIN'), findsOneWidget);
     });
 
     testWidgets('has chevron icons for nav tiles', (tester) async {
       await tester.pumpWidget(buildTab());
-      // Sources, Console settings, Emulators, RetroAchievements.
-      expect(find.byIcon(Icons.chevron_right), findsNWidgets(4));
+      // Sources, Console settings, Emulators, RomDrop, RetroAchievements.
+      expect(find.byIcon(Icons.chevron_right), findsNWidgets(5));
     });
   });
 

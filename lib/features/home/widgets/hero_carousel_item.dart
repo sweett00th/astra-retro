@@ -84,12 +84,15 @@ class HeroCarouselItem extends StatelessWidget {
   }
 }
 
+/// A carousel entry that is not a console: the library, or System Files.
 class HeroLibraryCarouselItem extends StatelessWidget {
   final double scale;
   final double opacity;
   final bool isSelected;
   final Responsive rs;
   final VoidCallback onTap;
+  final IconData icon;
+  final Color accentColor;
 
   const HeroLibraryCarouselItem({
     required this.scale,
@@ -97,6 +100,8 @@ class HeroLibraryCarouselItem extends StatelessWidget {
     required this.isSelected,
     required this.rs,
     required this.onTap,
+    this.icon = Icons.library_books_rounded,
+    this.accentColor = Colors.cyanAccent,
     super.key,
   });
 
@@ -105,7 +110,6 @@ class HeroLibraryCarouselItem extends StatelessWidget {
     final iconSize = rs.isPortrait
         ? (rs.isSmall ? rs.screenHeight * 0.30 : rs.screenHeight * 0.38)
         : (rs.isSmall ? rs.screenHeight * 0.50 : rs.screenHeight * 0.60);
-    const accentColor = Colors.cyanAccent;
     final padding = rs.isSmall ? 8.0 : 12.0;
 
     return GestureDetector(
@@ -145,7 +149,7 @@ class HeroLibraryCarouselItem extends StatelessWidget {
                       padding: EdgeInsets.all(padding),
                       child: Center(
                         child: Icon(
-                          Icons.library_books_rounded,
+                          icon,
                           size: iconSize * 0.45,
                           color: accentColor.forIcon.withValues(alpha: 0.6),
                         ),

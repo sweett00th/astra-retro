@@ -7,6 +7,9 @@ import '../../../l10n/app_localizations.dart';
 import '../../../models/system_model.dart';
 import '../../../providers/game_providers.dart';
 
+/// Accent of the System Files entry on the home screen.
+const systemFilesAccent = Color(0xFFFFB74D);
+
 class HomeGridView extends ConsumerWidget {
   final List<SystemModel> systems;
   final int selectedIndex;
@@ -37,7 +40,8 @@ class HomeGridView extends ConsumerWidget {
     final spacing = rs.isSmall ? 16.0 : 24.0;
     final horizontalPadding = rs.isSmall ? 24.0 : 48.0;
     final bottomPadding = rs.isSmall ? 80.0 : 90.0;
-    final totalItems = systems.length + 1; // +1 for library item
+    // Two entries follow the consoles: the library, then System Files.
+    final totalItems = systems.length + 2;
 
     return Center(
       child: ConstrainedBox(
@@ -72,7 +76,23 @@ class HomeGridView extends ConsumerWidget {
               return RepaintBoundary(
                 key: itemKeys[index],
                 child: _buildLibraryItem(context, isSelected, index,
-                    totalRemote: totalRemote, totalLocal: totalLocal),
+                    title: L.of(context).home_allGames,
+                    subtitle: L.of(context).home_library,
+                    icon: Icons.library_books_rounded,
+                    accentColor: Colors.cyanAccent,
+                    totalRemote: totalRemote,
+                    totalLocal: totalLocal),
+              );
+            }
+            if (index == systems.length + 1) {
+              // Emulator support files from RomDrop. Not games: no counts.
+              return RepaintBoundary(
+                key: itemKeys[index],
+                child: _buildLibraryItem(context, isSelected, index,
+                    title: 'System Files',
+                    subtitle: 'BIOS · Firmware · Keys',
+                    icon: Icons.memory_rounded,
+                    accentColor: systemFilesAccent),
               );
             }
             final system = systems[index];
@@ -88,8 +108,12 @@ class HomeGridView extends ConsumerWidget {
   }
 
   Widget _buildLibraryItem(BuildContext context, bool isSelected, int index,
-      {required int totalRemote, required int totalLocal}) {
-    const accentColor = Colors.cyanAccent;
+      {required String title,
+      required String subtitle,
+      required IconData icon,
+      required Color accentColor,
+      int totalRemote = 0,
+      int totalLocal = 0}) {
     final selectedScale = rs.isSmall ? 1.08 : 1.1;
     final borderSelected = rs.isSmall ? 2.0 : 3.0;
     final borderRadius = rs.isSmall ? 8.0 : 10.0;
@@ -164,7 +188,7 @@ class HomeGridView extends ConsumerWidget {
                   ),
                   child: Center(
                     child: Icon(
-                      Icons.library_books_rounded,
+                      icon,
                       size: iconSize,
                       color: accentColor.forIcon.withValues(alpha: 0.6),
                     ),
@@ -219,7 +243,7 @@ class HomeGridView extends ConsumerWidget {
                             ),
                           ),
                         Text(
-                          L.of(context).home_allGames,
+                          title,
                           style: TextStyle(
                             fontSize: titleFontSize,
                             fontWeight: FontWeight.w600,
@@ -236,7 +260,7 @@ class HomeGridView extends ConsumerWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                         Text(
-                          L.of(context).home_library,
+                          subtitle,
                           style: TextStyle(
                             fontSize: subFontSize,
                             color: accentColor.forText,
@@ -253,7 +277,7 @@ class HomeGridView extends ConsumerWidget {
                     right: 0,
                     child: Container(
                       height: rs.isSmall ? 2 : 3,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
                             Colors.transparent,

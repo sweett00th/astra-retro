@@ -4,6 +4,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../providers/app_providers.dart';
 import '../../onboarding/widgets/ra_onboarding_screen.dart';
 import '../../emulators/emulator_settings_screen.dart';
+import '../../system_files/romdrop_connection_screen.dart';
 import '../config_mode_screen.dart';
 import '../models/settings_entry.dart';
 import '../sources_screen.dart';
@@ -62,6 +63,13 @@ class SettingsGeneralTab extends ConsumerWidget {
             subtitle: 'Default emulator for each system',
             onSelect: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const EmulatorSettingsScreen())),
+          ),
+          SettingsEntry.nav(
+            icon: Icons.memory_rounded,
+            title: 'RomDrop',
+            subtitle: 'Server for BIOS, firmware and key files',
+            onSelect: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const RomDropConnectionScreen())),
           ),
           SettingsEntry.nav(
             icon: Icons.emoji_events_outlined,

@@ -23,6 +23,7 @@ import '../library/library_screen.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../settings/settings_screen.dart';
 import '../sources/retroarr_scan_screen.dart';
+import '../system_files/system_files_screen.dart';
 import '../game_list/game_list_screen.dart';
 import 'widgets/hero_carousel_item.dart';
 import 'widgets/home_grid_view.dart';
@@ -154,7 +155,7 @@ class _HomeViewState extends ConsumerState<HomeView>
         }
         setState(() {
           _configuredSystems = filtered;
-          _currentIndex = _lastStablePage % (filtered.length + 1);
+          _currentIndex = _lastStablePage % (filtered.length + 2);
         });
         _updateGridItemKeys();
         if (ref.read(homeLayoutProvider)) {
@@ -235,9 +236,14 @@ class _HomeViewState extends ConsumerState<HomeView>
   }
 
   int get _systemCount => _configuredSystems.length;
-  /// Total items in grid/carousel: systems + library entry
-  int get _totalItemCount => _configuredSystems.length + 1;
+  /// Total items in grid/carousel: systems + library + System Files
+  int get _totalItemCount => _configuredSystems.length + 2;
   bool get _isLibraryIndex => _currentIndex == _configuredSystems.length;
+  bool get _isSystemFilesIndex =>
+      _currentIndex == _configuredSystems.length + 1;
+
+  /// The cursor is on an entry that is not a console.
+  bool get _isSpecialIndex => _currentIndex >= _configuredSystems.length;
 
   SystemModel _getSystem(int index) {
     return _configuredSystems[index % _systemCount];
@@ -248,6 +254,10 @@ class _HomeViewState extends ConsumerState<HomeView>
     ref.read(feedbackServiceProvider).confirm();
     if (_isLibraryIndex) {
       _openLibrary();
+      return;
+    }
+    if (_isSystemFilesIndex) {
+      _openSystemFiles();
       return;
     }
     final system = _getSystem(_currentIndex);
@@ -273,6 +283,18 @@ class _HomeViewState extends ConsumerState<HomeView>
       context,
       MaterialPageRoute(
         builder: (context) => const LibraryScreen(),
+      ),
+    );
+  }
+
+  /// BIOS, firmware and keys from RomDrop. Its own section: these are not
+  /// games and never appear in a console or the library.
+  void _openSystemFiles() {
+    _debouncer.stopHold();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SystemFilesScreen(),
       ),
     );
   }
@@ -455,7 +477,7 @@ class _HomeViewState extends ConsumerState<HomeView>
         shortcutHint: 'Y',
         onSelect: _openLibrarySearch,
       ),
-      if (!_isLibraryIndex && _configuredSystems.isNotEmpty)
+      if (!_isSpecialIndex && _configuredSystems.isNotEmpty)
         QuickMenuItem(
           label: l.home_syncSystem(_getSystem(_currentIndex).name),
           subtitle: _lastSyncLabel(_getSystem(_currentIndex).id),
@@ -474,6 +496,11 @@ class _HomeViewState extends ConsumerState<HomeView>
           icon: Icons.manage_search_rounded,
           onSelect: _scanRetroArr,
         ),
+      QuickMenuItem(
+        label: 'System Files',
+        icon: Icons.memory_rounded,
+        onSelect: _openSystemFiles,
+      ),
       QuickMenuItem(
         label: l.home_settings,
         icon: Icons.settings_rounded,
@@ -506,7 +533,7 @@ class _HomeViewState extends ConsumerState<HomeView>
   }
 
   void _syncCurrentSystem() async {
-    if (_isLibraryIndex || _configuredSystems.isEmpty) return;
+    if (_isSpecialIndex || _configuredSystems.isEmpty) return;
     final system = _getSystem(_currentIndex);
     final config = ref.read(bootstrappedConfigProvider).valueOrNull;
     if (config == null) return;
@@ -591,33 +618,44 @@ class _HomeViewState extends ConsumerState<HomeView>
       return buildWithActions(
         Scaffold(
           backgroundColor: Colors.black,
-          body: Column(
+          body: Stack(
             children: [
-              Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.videogame_asset_off, size: 64, color: Colors.white24),
-                      const SizedBox(height: 16),
-                      Text(
-                        L.of(context).home_noConsoles,
-                        style: TextStyle(color: Colors.grey[500], fontSize: 18),
+              Column(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.videogame_asset_off, size: 64, color: Colors.white24),
+                          const SizedBox(height: 16),
+                          Text(
+                            L.of(context).home_noConsoles,
+                            style: TextStyle(color: Colors.grey[500], fontSize: 18),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            L.of(context).home_pressStartForMenu,
+                            style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        L.of(context).home_pressStartForMenu,
-                        style: TextStyle(color: Colors.grey[600], fontSize: 13),
-                      ),
-                    ],
+                    ),
                   ),
+                  ConsoleHud(
+                    embedded: true,
+                    b: HudAction(L.of(context).common_exit, onTap: _showExitDialogOverlay),
+                    start: HudAction(L.of(context).common_menu, onTap: toggleQuickMenu),
+                  ),
+                ],
+              ),
+              // The menu is the only way to System Files and Settings from
+              // here; this branch used to never show it.
+              if (showQuickMenu)
+                QuickMenuOverlay(
+                  items: _buildQuickMenuItems(),
+                  onClose: closeQuickMenu,
                 ),
-              ),
-              ConsoleHud(
-                embedded: true,
-                b: HudAction(L.of(context).common_exit, onTap: _showExitDialogOverlay),
-                start: HudAction(L.of(context).common_menu, onTap: toggleQuickMenu),
-              ),
             ],
           ),
         ),
@@ -625,8 +663,12 @@ class _HomeViewState extends ConsumerState<HomeView>
     }
 
     final isLibrary = _isLibraryIndex;
-    final currentSystem = isLibrary ? null : _getSystem(_currentIndex);
-    final accentColor = isLibrary ? Colors.cyanAccent : currentSystem!.accentColor;
+    final currentSystem = _isSpecialIndex ? null : _getSystem(_currentIndex);
+    final accentColor = _isSystemFilesIndex
+        ? systemFilesAccent
+        : isLibrary
+            ? Colors.cyanAccent
+            : currentSystem!.accentColor;
     final isGrid = ref.watch(homeLayoutProvider);
 
     if (isGrid && !_wasGrid) {
@@ -708,8 +750,10 @@ class _HomeViewState extends ConsumerState<HomeView>
         _buildCarousel(rs),
         if (isLibrary)
           _buildLibraryName(rs)
+        else if (currentSystem == null)
+          _buildSystemFilesName(rs)
         else
-          _buildSystemName(rs, currentSystem!),
+          _buildSystemName(rs, currentSystem),
         _buildControls(rs),
       ],
     );
@@ -728,7 +772,9 @@ class _HomeViewState extends ConsumerState<HomeView>
               flex: 45,
               child: isLibrary
                   ? _buildLibraryNameColumn(rs)
-                  : _buildSystemNameColumn(rs, currentSystem!),
+                  : currentSystem == null
+                      ? Center(child: _systemFilesTitle(rs))
+                      : _buildSystemNameColumn(rs, currentSystem),
             ),
           ],
         ),
@@ -866,6 +912,63 @@ class _HomeViewState extends ConsumerState<HomeView>
     );
   }
 
+  /// Title block of the System Files entry in the carousel.
+  Widget _systemFilesTitle(Responsive rs) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          'SYSTEM FILES',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: rs.isSmall ? 28 : (rs.isMedium ? 36 : 42),
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            letterSpacing: rs.isSmall ? 4 : 8,
+            shadows: [
+              Shadow(
+                color: systemFilesAccent.withValues(alpha: 0.8),
+                blurRadius: rs.isSmall ? 20 : 40,
+              ),
+              Shadow(
+                color: Colors.black.withValues(alpha: 0.9),
+                blurRadius: rs.isSmall ? 10 : 20,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: rs.spacing.sm),
+        Text(
+          'BIOS · Firmware · Keys',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: rs.isSmall ? 11 : 14,
+            fontWeight: FontWeight.w400,
+            color: Colors.grey[500],
+            letterSpacing: 3,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSystemFilesName(Responsive rs) {
+    final bottomOffset = rs.spacing.lg + 44 + rs.spacing.md;
+    return Positioned(
+      bottom: rs.isPortrait ? 0 : bottomOffset,
+      left: 0,
+      right: 0,
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        child: KeyedSubtree(
+          key: ValueKey(_currentIndex),
+          child: _systemFilesTitle(rs),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLibraryName(Responsive rs) {
     final bottomOffset = rs.spacing.lg + 44 + rs.spacing.md;
     return Positioned(
@@ -974,6 +1077,17 @@ class _HomeViewState extends ConsumerState<HomeView>
                 isSelected: isSelected,
                 rs: rs,
                 onTap: onTap,
+              );
+            }
+            if (itemIndex == _systemCount + 1) {
+              return HeroLibraryCarouselItem(
+                scale: scale,
+                opacity: opacity,
+                isSelected: isSelected,
+                rs: rs,
+                onTap: onTap,
+                icon: Icons.memory_rounded,
+                accentColor: systemFilesAccent,
               );
             }
             final system = _configuredSystems[itemIndex];
