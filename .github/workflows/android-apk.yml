@@ -52,6 +52,8 @@ jobs:
           flutter test --no-pub
           test/retroarr_provider_test.dart
           test/emulator_service_test.dart
+          test/library_layout_test.dart
+          test/recently_played_store_test.dart
           test/widgets/retroarr_source_form_test.dart
           test/source_resolver_test.dart
           test/source_model_test.dart

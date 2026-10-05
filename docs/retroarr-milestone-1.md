@@ -11,9 +11,9 @@ HTTP LAN URLs and HTTPS URLs are supported. Do not append `/api/v3` to the URL.
 The key is stored with `flutter_secure_storage`, keyed by source ID; it is not
 written into source JSON, game URLs, artwork URLs, or exported config. Removing
 the source removes its secure key. Newly enabled RetroArr platforms are picked up
-at app start and after a library scan. To change the URL or key, remove and add
-the source again. Exported sources require credentials to be entered again on
-another device. The key must use the same secure-storage options as the rest of
+at app start and after a library scan. To change the URL or key, use the
+source's **Edit connection** action (a blank key keeps the stored one).
+Exported sources require credentials to be entered again on another device. The key must use the same secure-storage options as the rest of
 the app (encrypted shared preferences); mixing modes hides the stored key.
 
 ## Verified contract in the checked-out RetroArr code
@@ -45,7 +45,8 @@ matcher. Unmatched platforms are not added as unsupported R-Shop consoles.
 Each game uses the file or folder name from RetroArr's path (for example
 Game (USA).z64), so downloads, installed state, deletion and the merge with
 local files use R-Shop's normal filename identity. Catalog entries without files
-on the server (wanted-only or missing) are not listed. No emulator launching is added.
+on the server (wanted-only or missing) are not listed. Launching installed games
+is described in [Library and emulators](library.md).
 
 ## Downloads (Milestone 2)
 

@@ -11,7 +11,12 @@ Open the APK on your Astra and allow installation from your browser/file manager
 when Android prompts you. The app currently appears as **R-Shop**. Add a
 **RetroArr** source, enter your server URL and API key, test the connection, and
 browse and download your library. Use **Scan RetroArr library** in the quick menu
-after adding games on the server. Emulator launching is not implemented yet.
+after adding games on the server.
+
+The app opens on the **Library**: recently played games on top, then your games
+grouped by platform under **Installed**, **Available** (on the server, not on
+the device) and **All**. Installed games start in the emulator you pick per
+system or per game. See [Library and emulators](docs/library.md).
 
 If the tablet is connected to your computer with USB debugging enabled, install
 with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a
