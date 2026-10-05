@@ -13,10 +13,10 @@ when Android prompts you. The app currently appears as **R-Shop**. Add a
 browse and download your library. Use **Scan RetroArr library** in the quick menu
 after adding games on the server.
 
-The app opens on the **Library**: recently played games on top, then your games
-grouped by platform under **Installed**, **Available** (on the server, not on
-the device) and **All**. Installed games start in the emulator you pick per
-system or per game. See [Library and emulators](docs/library.md).
+The app opens on the **Library**: recently played games on top, then one row of
+games per platform, installed ones first (green outline) and the ones still on
+the server after them (blue outline). Installed games start in the emulator you
+pick per system or per game. See [Library and emulators](docs/library.md).
 
 If the tablet is connected to your computer with USB debugging enabled, install
 with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a

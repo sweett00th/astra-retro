@@ -6,16 +6,22 @@ sync and the RetroArr scan live in its **+** menu).
 ## Layout
 
 - **Recently played** — games started from the app, newest first. Only games
-  that are still installed are shown; the row appears after the first launch.
-- **Tabs** (ZL / ZR): **Installed**, **Available** (on a source, not on the
-  device), **All**, **Favorites**, then your shelves.
-- **Platforms** — each tab groups its games by platform. Platforms start
-  collapsed; **A** on a platform expands or collapses it, and the **+** menu has
-  *Expand all / Collapse all platforms*. Each tab remembers what it has open
-  until you leave the Library.
+  that are still installed are shown. Until a game has been started, a line of
+  text holds the row's place.
+- **Tabs** (ZL / ZR): **All** (opens first), **Installed**, **Available** (on
+  a source, not on the device), **Favorites**, then your shelves.
+- **Platforms** — each tab groups its games by platform. A platform is a label
+  and one row of games that scrolls sideways: installed games first, then the
+  ones still on a source, each by title. Moving up or down returns to the game
+  a row was left on.
+- Platforms start expanded. **A** on a platform's label collapses or expands
+  it, and the **+** menu has *Collapse all / Expand all platforms*. Each tab
+  remembers what it has collapsed until you leave the Library.
+- **Outlines** — a green glow marks a game that is installed and ready to
+  play, a light blue one a game that is only on a source.
 - Search (**Y**) and shelves show one plain grid.
-- **L / R** change the tile size. Without a saved size, as many covers fit per
-  row as the screen comfortably holds.
+- **L / R** change the tile size. Without a saved size, a row shows as many
+  whole covers as the screen comfortably holds, plus a slice of the next one.
 
 ## Uninstalling several games
 
