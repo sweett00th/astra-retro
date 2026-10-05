@@ -60,6 +60,17 @@ jobs:
           test/sources_notifier_test.dart
           test/config_parser_test.dart
           test/provider_config_test.dart
+      - name: Test System Files (RomDrop client, transfers, screens)
+        run: >-
+          flutter test --no-pub
+          test/romdrop_models_test.dart
+          test/romdrop_api_service_test.dart
+          test/system_file_transfer_test.dart
+          test/romdrop_controller_test.dart
+          test/widgets/system_files_screens_test.dart
+          test/widgets/romdrop_connection_screen_test.dart
+          test/widgets/home_system_files_tile_test.dart
+          test/widgets/settings_widgets_test.dart
       - name: Build Astra APK
         run: flutter build apk --debug --no-pub --target-platform android-arm64
       - name: Verify project signing key

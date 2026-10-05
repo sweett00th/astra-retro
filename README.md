@@ -18,6 +18,11 @@ games per platform, installed ones first (green outline) and the ones still on
 the server after them (blue outline). Installed games start in the emulator you
 pick per system or per game. See [Library and emulators](docs/library.md).
 
+**System Files** on the home screen lists the BIOS, firmware and key files you
+keep on your own [RomDrop](https://github.com/sweett00th/romdrop) server and
+saves them into a folder you choose on the tablet. They are not games and are
+not launched. See [System Files](docs/system-files.md).
+
 If the tablet is connected to your computer with USB debugging enabled, install
 with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a
 project-only development signing key (a repository Actions secret in CI, and
