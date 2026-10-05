@@ -3,8 +3,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/responsive/responsive.dart';
 
-/// Collapsible platform row in the library: chevron, platform name, its
-/// logo and how many games it holds.
+/// Label above a platform's row of games in the library: chevron (the row
+/// collapses), platform name, its logo and how many games it holds.
 class LibrarySectionHeader extends StatelessWidget {
   final String title;
   final int count;
@@ -38,15 +38,15 @@ class LibrarySectionHeader extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
-        padding: EdgeInsets.symmetric(horizontal: rs.isSmall ? 10 : 14),
+        padding: EdgeInsets.symmetric(horizontal: rs.isSmall ? 6 : 8),
+        // A plain label above its row of games; it only gets a frame while
+        // the cursor is on it.
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: isSelected ? 0.12 : 0.04),
+          color: Colors.white.withValues(alpha: isSelected ? 0.12 : 0),
           borderRadius: BorderRadius.circular(rs.isSmall ? 8 : 10),
           border: Border.all(
-            color: isSelected
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.08),
-            width: isSelected ? 2 : 1,
+            color: isSelected ? Colors.white : Colors.transparent,
+            width: 2,
           ),
         ),
         child: Row(

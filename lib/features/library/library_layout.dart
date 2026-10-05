@@ -35,8 +35,9 @@ class LibraryCursor {
   String toString() => 'LibraryCursor(${kind.name}, $index)';
 }
 
-/// A platform group. A section without a header is a plain grid (search
-/// results, shelves) and always shows its games.
+/// A group of games. A platform section has a header and shows its games as
+/// one sideways-scrolling strip. A section without a header is a plain
+/// wrapped grid (search results, shelves) and always shows its games.
 class LibrarySection {
   final String key;
 
@@ -51,7 +52,7 @@ class LibrarySection {
     required this.start,
     required this.count,
     this.hasHeader = true,
-    this.expanded = false,
+    this.expanded = true,
   });
 
   bool get showsGames => count > 0 && (expanded || !hasHeader);
@@ -69,9 +70,11 @@ class LibraryMetrics {
   /// Section header including the gap below it.
   final double headerHeight;
   final double tileHeight;
+
+  /// Gap between the rows of a wrapped grid.
   final double rowSpacing;
 
-  /// Gap below the last row of an expanded section.
+  /// Gap below a strip, or below the last row of a wrapped grid.
   final double sectionGap;
 
   const LibraryMetrics({
@@ -98,6 +101,13 @@ class LibraryRow {
   final double top;
   final double height;
 
+  /// Distance to the next row: [height] plus the gap below it.
+  final double extent;
+
+  /// One sideways-scrolling line holding all of its cells (recents, a
+  /// platform's games) rather than one line of a wrapped grid.
+  final bool strip;
+
   const LibraryRow({
     required this.kind,
     required this.section,
@@ -105,27 +115,36 @@ class LibraryRow {
     required this.count,
     required this.top,
     required this.height,
+    required this.extent,
+    this.strip = false,
   });
 
   double get bottom => top + height;
 }
 
-/// Rows of the library (recents, platform headers, game grids) with their
-/// vertical positions, and d-pad movement between them.
+/// Rows of the library (recents, platform headers, game strips and grids)
+/// with their vertical positions, and d-pad movement between them.
 class LibraryLayout {
   LibraryLayout({
     required this.recentCount,
     required this.sections,
     required this.columns,
     required this.metrics,
+    this.leadIn = 0,
   }) : assert(columns > 0) {
     _build();
   }
 
   final int recentCount;
   final List<LibrarySection> sections;
+
+  /// Tiles per row of a wrapped grid.
   final int columns;
   final LibraryMetrics metrics;
+
+  /// Height of anything shown above the first row that the cursor cannot
+  /// reach (the hint shown while nothing has been played yet).
+  final double leadIn;
 
   final List<LibraryRow> rows = [];
   final List<int> _headerRow = [];
@@ -135,7 +154,7 @@ class LibraryLayout {
   double get contentHeight => _contentHeight;
 
   void _build() {
-    var y = metrics.topPadding;
+    var y = metrics.topPadding + leadIn;
     if (recentCount > 0) {
       rows.add(LibraryRow(
           kind: LibraryCursorKind.recent,
@@ -143,7 +162,9 @@ class LibraryLayout {
           start: 0,
           count: recentCount,
           top: y,
-          height: metrics.recentsHeight));
+          height: metrics.recentsHeight,
+          extent: metrics.recentsHeight,
+          strip: true));
       y += metrics.recentsHeight;
     }
     for (var s = 0; s < sections.length; s++) {
@@ -156,7 +177,8 @@ class LibraryLayout {
             start: s,
             count: 1,
             top: y,
-            height: metrics.headerHeight));
+            height: metrics.headerHeight,
+            extent: metrics.headerHeight));
         y += metrics.headerHeight;
       } else {
         _headerRow.add(-1);
@@ -166,17 +188,34 @@ class LibraryLayout {
         continue;
       }
       _firstGameRow.add(rows.length);
+      if (section.hasHeader) {
+        // A platform: all of its games on one strip.
+        final extent = metrics.tileHeight + metrics.sectionGap;
+        rows.add(LibraryRow(
+            kind: LibraryCursorKind.game,
+            section: s,
+            start: section.start,
+            count: section.count,
+            top: y,
+            height: metrics.tileHeight,
+            extent: extent,
+            strip: true));
+        y += extent;
+        continue;
+      }
       for (var offset = 0; offset < section.count; offset += columns) {
         final remaining = section.count - offset;
+        final extent = metrics.tileHeight +
+            (remaining > columns ? metrics.rowSpacing : metrics.sectionGap);
         rows.add(LibraryRow(
             kind: LibraryCursorKind.game,
             section: s,
             start: section.start + offset,
             count: remaining < columns ? remaining : columns,
             top: y,
-            height: metrics.tileHeight));
-        y += metrics.tileHeight +
-            (remaining > columns ? metrics.rowSpacing : metrics.sectionGap);
+            height: metrics.tileHeight,
+            extent: extent));
+        y += extent;
       }
     }
     _contentHeight = y + metrics.bottomPadding;
@@ -184,6 +223,15 @@ class LibraryLayout {
 
   /// First cell from the top, or null when nothing is shown.
   LibraryCursor? get first => rows.isEmpty ? null : _cellAt(rows.first, 0);
+
+  /// First game tile from the top (recents or a platform's games); the
+  /// first cell when only headers are shown.
+  LibraryCursor? get firstTile {
+    for (final row in rows) {
+      if (row.kind != LibraryCursorKind.header) return _cellAt(row, 0);
+    }
+    return first;
+  }
 
   /// Section holding [gameIndex], or -1.
   int sectionOfGame(int gameIndex) {
@@ -209,6 +257,7 @@ class LibraryLayout {
       case LibraryCursorKind.game:
         final s = sectionOfGame(cursor.index);
         if (s < 0 || _firstGameRow[s] < 0) return -1;
+        if (sections[s].hasHeader) return _firstGameRow[s];
         return _firstGameRow[s] +
             (cursor.index - sections[s].start) ~/ columns;
     }
@@ -256,14 +305,14 @@ class LibraryLayout {
 
   /// Cell reached from [from] with one d-pad press, or null at an edge.
   ///
-  /// [column] is the grid column the user last chose (kept while moving
-  /// vertically through shorter rows and headers); [recentIndex] is the
-  /// recents tile to return to.
+  /// Moving up or down into a wrapped grid keeps [column], the grid column
+  /// the user last chose. Moving into a strip returns to the tile it was
+  /// left on, which [stripPosition] supplies (the first tile by default).
   LibraryCursor? move(
     LibraryCursor from,
     GridDirection direction, {
     int column = 0,
-    int recentIndex = 0,
+    int Function(LibraryRow row)? stripPosition,
   }) {
     final rowIndex = rowIndexOf(from);
     if (rowIndex < 0) return resolve(from);
@@ -279,8 +328,7 @@ class LibraryLayout {
         final target = rowIndex + (direction == GridDirection.up ? -1 : 1);
         if (target < 0 || target >= rows.length) return null;
         final next = rows[target];
-        final wanted =
-            next.kind == LibraryCursorKind.recent ? recentIndex : column;
+        final wanted = next.strip ? (stripPosition?.call(next) ?? 0) : column;
         return _cellAt(next, wanted.clamp(0, next.count - 1));
     }
   }
@@ -304,7 +352,7 @@ class LibraryLayout {
     return covering;
   }
 
-  /// Cell of [row] closest to [column].
-  LibraryCursor cellIn(LibraryRow row, int column) =>
-      _cellAt(row, column.clamp(0, row.count - 1));
+  /// Cell of [row] closest to [position].
+  LibraryCursor cellIn(LibraryRow row, int position) =>
+      _cellAt(row, position.clamp(0, row.count - 1));
 }

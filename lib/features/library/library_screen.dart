@@ -64,9 +64,10 @@ class LibraryScreen extends ConsumerStatefulWidget {
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
     with ConsoleScreenMixin, SearchableScreenMixin {
-  // Fixed tabs: Installed, Available, All, Favorites; shelves follow.
-  static const _tabInstalled = 0;
-  static const _tabAvailable = 1;
+  // Fixed tabs: All, Installed, Available, Favorites; shelves follow.
+  static const _tabAll = 0;
+  static const _tabInstalled = 1;
+  static const _tabAvailable = 2;
   static const _tabFavorites = 3;
   static const _fixedTabCount = 4;
 
@@ -78,16 +79,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   /// Tile width the default zoom level aims for.
   static const _autoTileWidth = 145.0;
+
+  /// Part of one more tile shown at the right edge of a strip, as a sign
+  /// that the row scrolls.
+  static const _peek = 0.35;
   static const _maxRecents = 12;
-  static const _headerGap = 8.0;
+  static const _headerGap = 10.0;
   static const _sectionGap = 18.0;
   static const _recentsGap = 18.0;
+
+  /// Tile outline: on the device and ready to play, or on a source only.
+  static const _installedGlow = Colors.greenAccent;
+  static const _remoteGlow = Colors.lightBlueAccent;
 
   static final Map<String, SystemModel> _systemsById = {
     for (final s in SystemModel.supportedSystems) s.id: s,
   };
 
-  int _selectedTab = _tabInstalled; // fixed tabs, then shelves
+  int _selectedTab = _tabAll; // fixed tabs, then shelves
   List<CustomShelf> _shelves = [];
 
   // Reorder mode
@@ -101,6 +110,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       ValueNotifier(const LibraryCursor.header(0).id);
   int _preferredColumn = 0;
   int _recentMemory = 0;
+
+  /// Tile each platform strip was left on, so returning to a row lands on
+  /// the same game.
+  final Map<String, int> _stripMemory = {};
   DateTime? _lastMove;
 
   /// 0 until the first build fits the default to the screen width.
@@ -110,6 +123,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   final ScrollController _scrollController = ScrollController();
   final ScrollController _recentsController = ScrollController();
+  final Map<String, ScrollController> _stripControllers = {};
   final ValueNotifier<bool> _scrollSuppression = ValueNotifier(false);
   Timer? _suppressionTimer;
   bool _programmaticScroll = false;
@@ -133,7 +147,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   Set<String> _installedKeys = {};
   int _installedCount = 0;
   int _availableCount = 0;
-  final Map<int, Set<String>> _expandedByTab = {};
+  final Map<int, Set<String>> _collapsedByTab = {};
   // RA match data keyed by filename
   Map<String, RaMatchResult> _raMatches = {};
   final Map<String, List<String>> _coverUrlCache = {};
@@ -142,6 +156,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   double _side = 0;
   double _spacing = 0;
   double _tileWidth = 0;
+  double _recentsHintHeight = 0;
   LibraryMetrics _metrics = const LibraryMetrics(
       recentsHeight: 0,
       headerHeight: 0,
@@ -167,8 +182,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   bool get _showRecents =>
       _sectioned && _recents.isNotEmpty && _filteredGames.isNotEmpty;
 
-  Set<String> get _expanded =>
-      _expandedByTab.putIfAbsent(_selectedTab, () => <String>{});
+  /// Nothing played yet: the row's place holds a line saying how it fills.
+  bool get _showRecentsHint =>
+      _sectioned && _recents.isEmpty && _filteredGames.isNotEmpty;
+
+  /// Platforms start expanded; each tab remembers the ones collapsed.
+  Set<String> get _collapsed =>
+      _collapsedByTab.putIfAbsent(_selectedTab, () => <String>{});
+
+  String _stripId(String sectionKey) => '$_selectedTab/$sectionKey';
 
   CustomShelf? get _activeShelf {
     if (!_isShelfTab) return null;
@@ -212,7 +234,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   @override
   void onSearchSelectionReset() {
-    final first = _layout.first;
+    final first = _layout.firstTile;
     if (first != null) _setCursor(first);
   }
 
@@ -309,6 +331,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     _debouncer.stopHold();
     _scrollController.dispose();
     _recentsController.dispose();
+    for (final controller in _stripControllers.values) {
+      controller.dispose();
+    }
     disposeSearch();
     _scrollSuppression.dispose();
     _selectedIdNotifier.dispose();
@@ -476,7 +501,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
     // Sort (skip for manual-sort shelves)
     if (_sectioned) {
-      games.sort(_compareByPlatform);
+      // Platforms by name; within one, games on the device come first.
+      games.sort((a, b) {
+        final byPlatform = _comparePlatforms(a.systemSlug, b.systemSlug);
+        if (byPlatform != 0) return byPlatform;
+        final aInstalled = installedKeys.contains(a.key);
+        if (aInstalled != installedKeys.contains(b.key)) {
+          return aInstalled ? -1 : 1;
+        }
+        final byTitle =
+            a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
+        return byTitle != 0 ? byTitle : a.filename.compareTo(b.filename);
+      });
     } else if (!isManualSort) {
       if (shelfSortMode == ShelfSortMode.bySystem) {
         games.sort((a, b) {
@@ -509,17 +545,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     _scrollToCursorAfterLayout(onlyIfHidden: true);
   }
 
-  /// Platforms by name, games by title within a platform.
-  static int _compareByPlatform(LibraryEntry a, LibraryEntry b) {
-    if (a.systemSlug != b.systemSlug) {
-      final byName = _systemName(a.systemSlug)
-          .toLowerCase()
-          .compareTo(_systemName(b.systemSlug).toLowerCase());
-      return byName != 0 ? byName : a.systemSlug.compareTo(b.systemSlug);
-    }
-    final byTitle =
-        a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase());
-    return byTitle != 0 ? byTitle : a.filename.compareTo(b.filename);
+  /// Platform order: by display name.
+  static int _comparePlatforms(String a, String b) {
+    if (a == b) return 0;
+    final byName =
+        _systemName(a).toLowerCase().compareTo(_systemName(b).toLowerCase());
+    return byName != 0 ? byName : a.compareTo(b);
   }
 
   static String _systemName(String slug) =>
@@ -538,7 +569,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
             ];
       return;
     }
-    final expanded = _expanded;
+    final collapsed = _collapsed;
     final sections = <LibrarySection>[];
     var start = 0;
     while (start < _filteredGames.length) {
@@ -552,7 +583,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           key: slug,
           start: start,
           count: end - start,
-          expanded: expanded.contains(slug)));
+          expanded: !collapsed.contains(slug)));
       start = end;
     }
     _sections = sections;
@@ -576,6 +607,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         sections: _sections,
         columns: math.max(1, _columns),
         metrics: _metrics,
+        leadIn: _showRecentsHint ? _recentsHintHeight : 0,
       );
 
   /// Keeps the cursor on the same game or platform after the list changed,
@@ -601,18 +633,35 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       }
       next ??= _layout.resolve(previous);
     }
-    _setCursor(next ?? _layout.first ?? const LibraryCursor.header(0));
+    // A fresh view starts on a game rather than on a platform header.
+    _setCursor(next ?? _layout.firstTile ?? const LibraryCursor.header(0));
   }
 
   void _setCursor(LibraryCursor cursor, {bool keepColumn = false}) {
     _cursor = cursor;
     if (cursor.kind == LibraryCursorKind.recent) {
       _recentMemory = cursor.index;
-    } else if (cursor.kind == LibraryCursorKind.game && !keepColumn) {
-      _preferredColumn = _layout.columnOf(cursor);
+    } else if (cursor.kind == LibraryCursorKind.game) {
+      final row = _layout.rowOf(cursor);
+      if (row != null && row.strip) {
+        _stripMemory[_stripId(_sections[row.section].key)] =
+            cursor.index - row.start;
+      } else if (!keepColumn) {
+        _preferredColumn = _layout.columnOf(cursor);
+      }
     }
     _selectedIdNotifier.value = cursor.id;
   }
+
+  /// Tile a strip was left on (the first one for a row not visited yet).
+  int _stripPosition(LibraryRow row) => row.kind == LibraryCursorKind.recent
+      ? _recentMemory
+      : _stripMemory[_stripId(_sections[row.section].key)] ?? 0;
+
+  ScrollController? _stripControllerOf(LibraryRow row) =>
+      row.kind == LibraryCursorKind.recent
+          ? _recentsController
+          : _stripControllers[_stripId(_sections[row.section].key)];
 
   ({List<LibraryEntry> games, bool isManualSort, ShelfSortMode? shelfSortMode}) _resolveShelfGames() {
     final shelf = _activeShelf;
@@ -697,9 +746,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final key = _sections[index].key;
     ref.read(feedbackServiceProvider).tick();
     setState(() {
-      if (!_expanded.remove(key)) _expanded.add(key);
+      if (!_collapsed.remove(key)) _collapsed.add(key);
       _rebuildSections();
       _layout = _newLayout();
+      // Collapsing from inside the row leaves the cursor on its header.
+      _setCursor(_layout.resolve(_cursor) ?? const LibraryCursor.header(0));
     });
     _scrollToCursorAfterLayout();
   }
@@ -707,8 +758,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void _setAllExpanded(bool expanded) {
     ref.read(feedbackServiceProvider).tick();
     setState(() {
-      _expanded.clear();
-      if (expanded) _expanded.addAll(_sections.map((s) => s.key));
+      _collapsed.clear();
+      if (!expanded) _collapsed.addAll(_sections.map((s) => s.key));
       _rebuildSections();
       _layout = _newLayout();
       _setCursor(_layout.resolve(_cursor) ?? const LibraryCursor.header(0));
@@ -730,7 +781,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         direction == GridDirection.up || direction == GridDirection.down;
     if (_debouncer.startHold(() {
       final next = _layout.move(_cursor, direction,
-          column: _preferredColumn, recentIndex: _recentMemory);
+          column: _preferredColumn, stripPosition: _stripPosition);
       if (next == null || next == _cursor) return;
       // A single press glides; held or rapid presses jump to keep up.
       final now = DateTime.now();
@@ -744,14 +795,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
   }
 
-  /// Brings the cursor's row to the middle of the screen (and its tile into
-  /// view when it is in the recents row).
+  /// Brings the cursor's row to the middle of the screen, and its tile into
+  /// view when the row is a sideways-scrolling strip.
   void _scrollToCursor({bool instant = false, bool onlyIfHidden = false}) {
-    if (_cursor.kind == LibraryCursorKind.recent) {
-      _scrollRecentsTo(_cursor.index, instant: instant);
-    }
     final row = _layout.rowOf(_cursor);
-    if (row == null || !_scrollController.hasClients) return;
+    if (row == null) return;
+    if (row.strip) {
+      _scrollStripTo(_stripControllerOf(row), _layout.columnOf(_cursor),
+          instant: instant);
+    }
+    if (!_scrollController.hasClients) return;
     final position = _scrollController.position;
     if (!position.hasContentDimensions) return;
     final viewport = position.viewportDimension;
@@ -784,31 +837,44 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   }
 
   /// For changes that alter the content height: scroll once it is laid out.
+  /// A strip that was off screen is only built by that scroll, so its own
+  /// sideways position is set one frame later.
   void _scrollToCursorAfterLayout({bool onlyIfHidden = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _scrollToCursor(instant: true, onlyIfHidden: onlyIfHidden);
+      if (!mounted) return;
+      _scrollToCursor(instant: true, onlyIfHidden: onlyIfHidden);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final row = _layout.rowOf(_cursor);
+        if (row != null && row.strip) {
+          _scrollStripTo(_stripControllerOf(row), _layout.columnOf(_cursor),
+              instant: true);
+        }
+      });
     });
   }
 
-  void _scrollRecentsTo(int index, {bool instant = false}) {
-    if (!_recentsController.hasClients) return;
-    final position = _recentsController.position;
-    if (!position.hasContentDimensions) return;
-    final start = index * (_tileWidth + _spacing);
-    final end = start + _tileWidth + 2 * _side - position.viewportDimension;
+  /// Scrolls a strip just far enough to show the tile at [position] whole.
+  void _scrollStripTo(ScrollController? controller, int position,
+      {bool instant = false}) {
+    if (controller == null || !controller.hasClients) return;
+    final scroll = controller.position;
+    if (!scroll.hasContentDimensions) return;
+    final start = position * (_tileWidth + _spacing);
+    final end = start + _tileWidth + 2 * _side - scroll.viewportDimension;
     double target;
-    if (position.pixels > start) {
+    if (scroll.pixels > start) {
       target = start;
-    } else if (position.pixels < end) {
+    } else if (scroll.pixels < end) {
       target = end;
     } else {
       return;
     }
-    target = target.clamp(0.0, position.maxScrollExtent).toDouble();
+    target = target.clamp(0.0, scroll.maxScrollExtent).toDouble();
     if (instant) {
-      _recentsController.jumpTo(target);
+      controller.jumpTo(target);
     } else {
-      _recentsController.animateTo(target,
+      controller.animateTo(target,
           duration: const Duration(milliseconds: 150), curve: Curves.easeOut);
     }
   }
@@ -856,11 +922,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final visible = _layout.firstVisibleRow(top, position.viewportDimension);
     if (visible == null) return;
     _setCursor(
-      _layout.cellIn(
-          visible,
-          visible.kind == LibraryCursorKind.recent
-              ? _recentMemory
-              : _preferredColumn),
+      _layout.cellIn(visible,
+          visible.strip ? _stripPosition(visible) : _preferredColumn),
       keepColumn: true,
     );
   }
@@ -1553,8 +1616,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           .floor()
           .clamp(_minColumns, _maxColumns);
     }
-    final tileWidth = math.max(
-        1.0, (rs.screenWidth - 2 * side - (_columns - 1) * spacing) / _columns);
+    // A row shows [_columns] whole tiles and a slice of the next one.
+    final tileWidth = math.max(1.0,
+        (rs.screenWidth - side - _columns * spacing) / (_columns + _peek));
     final bottomPadding = rs.isPortrait ? 80.0 : 100.0;
     if (side == _side &&
         spacing == _spacing &&
@@ -1565,18 +1629,28 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     _side = side;
     _spacing = spacing;
     _tileWidth = tileWidth;
+    _recentsHintHeight = _recentsLabelHeight(rs) + (rs.isSmall ? 26.0 : 30.0);
     final tileHeight = tileWidth / _tileAspect;
     _metrics = LibraryMetrics(
       topPadding: rs.spacing.md,
       bottomPadding: bottomPadding,
       recentsHeight: _recentsLabelHeight(rs) + tileHeight + _recentsGap,
-      headerHeight: (rs.isSmall ? 38.0 : 44.0) + _headerGap,
+      headerHeight: (rs.isSmall ? 28.0 : 34.0) + _headerGap,
       tileHeight: tileHeight,
       rowSpacing: spacing,
       sectionGap: _sectionGap,
     );
     _layout = _newLayout();
   }
+
+  /// Right inset that makes a wrapped grid's tiles the same size as the
+  /// strips' (which keep room for the slice of the next tile).
+  double _gridRightPadding(Responsive rs) => math.max(
+      _side,
+      rs.screenWidth -
+          _side -
+          _columns * _tileWidth -
+          (_columns - 1) * _spacing);
 
   static double _recentsLabelHeight(Responsive rs) => rs.isSmall ? 22.0 : 26.0;
 
@@ -1651,15 +1725,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   Widget _buildHeader(Responsive rs) {
     final l = L.of(context);
     final fixedLabels = [
+      l.library_tabAll,
       l.library_tabInstalled,
       'Available',
-      l.library_tabAll,
       l.library_tabFavorites,
     ];
     final fixedCounts = [
+      _allGames.length,
       _installedCount,
       _availableCount,
-      _allGames.length,
       _favoritesCount,
     ];
     final shelf = _activeShelf;
@@ -1719,16 +1793,24 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                     if (_selectMode)
                       _headerChip(rs, '${_marked.length} MARKED TO UNINSTALL',
                           color: Colors.redAccent)
-                    else if (shelf != null)
-                      // Sort indicator (platform tabs are always grouped)
-                      _headerChip(
-                        rs,
-                        switch (shelf.sortMode) {
-                          ShelfSortMode.alphabetical => l.library_sortIndicatorAZ,
-                          ShelfSortMode.bySystem => l.library_sortIndicatorBySystem,
-                          ShelfSortMode.manual => l.library_sortIndicatorManual,
-                        },
-                      ),
+                    else ...[
+                      // What the tile outlines mean.
+                      _legendDot(rs, _installedGlow, 'Installed'),
+                      SizedBox(width: rs.isSmall ? 10 : 14),
+                      _legendDot(rs, _remoteGlow, 'On server'),
+                      if (shelf != null) ...[
+                        SizedBox(width: rs.isSmall ? 10 : 14),
+                        // Sort indicator (platform tabs are always grouped)
+                        _headerChip(
+                          rs,
+                          switch (shelf.sortMode) {
+                            ShelfSortMode.alphabetical => l.library_sortIndicatorAZ,
+                            ShelfSortMode.bySystem => l.library_sortIndicatorBySystem,
+                            ShelfSortMode.manual => l.library_sortIndicatorManual,
+                          },
+                        ),
+                      ],
+                    ],
                   ],
                 ),
                 SizedBox(height: rs.isSmall ? 6 : 10),
@@ -1743,6 +1825,35 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _legendDot(Responsive rs, Color color, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 9,
+          height: 9,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(color: color, width: 1.5),
+            boxShadow: [
+              BoxShadow(color: color.withValues(alpha: 0.6), blurRadius: 5),
+            ],
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label.toUpperCase(),
+          style: TextStyle(
+            fontSize: rs.isSmall ? 9 : 10,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[400],
+            letterSpacing: 1,
+          ),
+        ),
+      ],
     );
   }
 
@@ -1853,25 +1964,29 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           controller: _scrollController,
           slivers: [
             SliverToBoxAdapter(child: SizedBox(height: _metrics.topPadding)),
-            if (_showRecents)
-              SliverToBoxAdapter(child: _buildRecents(rs, cacheWidth)),
-            for (var s = 0; s < _sections.length; s++) ...[
-              if (_sections[s].hasHeader)
-                SliverToBoxAdapter(
-                  key: ValueKey('header-${_sections[s].key}'),
-                  child: _buildSectionHeader(s),
+            if (_showRecentsHint)
+              SliverToBoxAdapter(child: _buildRecentsHint(rs)),
+            if (_sectioned)
+              // Recents, then a header and a strip per platform. Every row's
+              // height is known, so only rows near the screen are built and
+              // the page can jump straight to any of them.
+              SliverVariedExtentList.builder(
+                itemCount: _layout.rows.length,
+                itemExtentBuilder: (index, _) => index < _layout.rows.length
+                    ? _layout.rows[index].extent
+                    : null,
+                itemBuilder: (context, index) =>
+                    _buildRow(rs, _layout.rows[index], cacheWidth),
+              )
+            else
+              SliverPadding(
+                padding: EdgeInsets.only(
+                  left: _side,
+                  right: _gridRightPadding(rs),
+                  bottom: _metrics.sectionGap,
                 ),
-              if (_sections[s].showsGames)
-                SliverPadding(
-                  key: ValueKey('games-${_sections[s].key}'),
-                  padding: EdgeInsets.only(
-                    left: _side,
-                    right: _side,
-                    bottom: _metrics.sectionGap,
-                  ),
-                  sliver: _buildSectionGrid(_sections[s], cacheWidth),
-                ),
-            ],
+                sliver: _buildGrid(cacheWidth),
+              ),
             SliverToBoxAdapter(child: SizedBox(height: _metrics.bottomPadding)),
           ],
         ),
@@ -1879,87 +1994,169 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     );
   }
 
-  Widget _buildRecents(Responsive rs, int cacheWidth) {
+  Widget _buildRow(Responsive rs, LibraryRow row, int cacheWidth) {
+    switch (row.kind) {
+      case LibraryCursorKind.recent:
+        return _buildRecents(rs, cacheWidth);
+      case LibraryCursorKind.header:
+        return _buildSectionHeader(rs, row.section);
+      case LibraryCursorKind.game:
+        return _buildSectionStrip(row, cacheWidth);
+    }
+  }
+
+  Widget _recentsLabel(Responsive rs) {
     return SizedBox(
-      height: _metrics.recentsHeight,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: _recentsLabelHeight(rs),
-            child: Padding(
-              padding: EdgeInsets.only(left: _side),
-              child: Text(
-                'RECENTLY PLAYED',
-                style: TextStyle(
-                  fontSize: rs.isSmall ? 10 : 12,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.grey[500],
-                  letterSpacing: 1.5,
-                ),
-              ),
-            ),
-          ),
-          SizedBox(
-            height: _metrics.tileHeight,
-            child: ListView.builder(
-              controller: _recentsController,
-              scrollDirection: Axis.horizontal,
-              // The focused tile grows past the row's edges.
-              clipBehavior: Clip.none,
-              padding: EdgeInsets.symmetric(horizontal: _side),
-              itemExtent: _tileWidth + _spacing,
-              itemCount: _recents.length,
-              itemBuilder: (context, index) => Padding(
-                padding: EdgeInsets.only(right: _spacing),
-                child: _buildGameTile(
-                  _recents[index],
-                  LibraryCursor.recent(index),
-                  cacheWidth,
-                ),
-              ),
-            ),
-          ),
-        ],
+      height: _recentsLabelHeight(rs),
+      child: Text(
+        'RECENTLY PLAYED',
+        style: TextStyle(
+          fontSize: rs.isSmall ? 10 : 12,
+          fontWeight: FontWeight.w700,
+          color: Colors.grey[500],
+          letterSpacing: 1.5,
+        ),
       ),
     );
   }
 
-  Widget _buildSectionHeader(int index) {
+  Widget _buildRecents(Responsive rs, int cacheWidth) {
+    return Column(
+      key: const ValueKey('recents'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(left: _side),
+          child: _recentsLabel(rs),
+        ),
+        SizedBox(
+          height: _metrics.tileHeight,
+          child: _buildTileStrip(
+            storageKey: 'library-recents',
+            controller: _recentsController,
+            count: _recents.length,
+            tile: (index) => _buildGameTile(
+              _recents[index],
+              LibraryCursor.recent(index),
+              cacheWidth,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Shown in the row's place until a game has been started from the app.
+  Widget _buildRecentsHint(Responsive rs) {
+    return SizedBox(
+      height: _recentsHintHeight,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: _side),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _recentsLabel(rs),
+            Text(
+              'Nothing yet. Games you start from here line up in this row.',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: rs.isSmall ? 10 : 12,
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(Responsive rs, int index) {
     final section = _sections[index];
     final system = _systemsById[section.key];
     final cursor = LibraryCursor.header(index);
     final markedCount = _selectMode
         ? _installedKeysIn(section).where(_marked.contains).length
         : 0;
-    return SizedBox(
-      height: _metrics.headerHeight,
-      child: Padding(
-        padding: EdgeInsets.only(left: _side, right: _side, bottom: _headerGap),
-        child: SelectionAwareItem(
-          selectedIndexNotifier: _selectedIdNotifier,
-          index: cursor.id,
-          builder: (isSelected) => LibrarySectionHeader(
-            title: _systemName(section.key),
-            count: section.count,
-            expanded: section.expanded,
-            isSelected: isSelected,
-            accentColor: system?.iconColor ?? Colors.grey,
-            iconAsset: system == null || system.iconName.isEmpty
-                ? null
-                : system.iconAssetPath,
-            markedCount: markedCount,
-            onTap: () {
-              _setCursor(cursor);
-              _toggleSection(index);
-            },
-          ),
+    // The label's own frame and padding hang outside the row's left edge,
+    // so its chevron lines up with the tiles below.
+    final side = _side - (rs.isSmall ? 8 : 10);
+    return Padding(
+      key: ValueKey('header-${section.key}'),
+      padding: EdgeInsets.only(left: side, right: side, bottom: _headerGap),
+      child: SelectionAwareItem(
+        selectedIndexNotifier: _selectedIdNotifier,
+        index: cursor.id,
+        builder: (isSelected) => LibrarySectionHeader(
+          title: _systemName(section.key),
+          count: section.count,
+          expanded: section.expanded,
+          isSelected: isSelected,
+          accentColor: system?.iconColor ?? Colors.grey,
+          iconAsset: system == null || system.iconName.isEmpty
+              ? null
+              : system.iconAssetPath,
+          markedCount: markedCount,
+          onTap: () {
+            _setCursor(cursor);
+            _toggleSection(index);
+          },
         ),
       ),
     );
   }
 
-  Widget _buildSectionGrid(LibrarySection section, int cacheWidth) {
+  /// A platform's games on one sideways-scrolling row.
+  Widget _buildSectionStrip(LibraryRow row, int cacheWidth) {
+    final section = _sections[row.section];
+    final id = _stripId(section.key);
+    return Align(
+      key: ValueKey('strip-$id'),
+      alignment: Alignment.topLeft,
+      child: SizedBox(
+        height: _metrics.tileHeight,
+        child: _buildTileStrip(
+          storageKey: 'library-strip-$id',
+          controller: _stripControllers.putIfAbsent(id, ScrollController.new),
+          count: section.count,
+          tile: (i) {
+            final index = section.start + i;
+            return _buildGameTile(
+              _filteredGames[index],
+              LibraryCursor.game(index),
+              cacheWidth,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTileStrip({
+    required String storageKey,
+    required ScrollController controller,
+    required int count,
+    required Widget Function(int index) tile,
+  }) {
+    return ListView.builder(
+      // Keeps the row's sideways position while it is scrolled off screen.
+      key: PageStorageKey<String>(storageKey),
+      controller: controller,
+      scrollDirection: Axis.horizontal,
+      // The focused tile and the tiles' glow reach past the row's edges.
+      clipBehavior: Clip.none,
+      padding: EdgeInsets.symmetric(horizontal: _side),
+      itemExtent: _tileWidth + _spacing,
+      itemCount: count,
+      itemBuilder: (context, index) => Padding(
+        padding: EdgeInsets.only(right: _spacing),
+        child: tile(index),
+      ),
+    );
+  }
+
+  /// Search results and shelves: one wrapped grid.
+  Widget _buildGrid(int cacheWidth) {
     return SliverGrid(
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: _columns,
@@ -1968,15 +2165,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
         mainAxisExtent: _metrics.tileHeight,
       ),
       delegate: SliverChildBuilderDelegate(
-        (context, i) {
-          final index = section.start + i;
-          return _buildGameTile(
-            _filteredGames[index],
-            LibraryCursor.game(index),
-            cacheWidth,
-          );
-        },
-        childCount: section.count,
+        (context, index) => _buildGameTile(
+          _filteredGames[index],
+          LibraryCursor.game(index),
+          cacheWidth,
+        ),
+        childCount: _filteredGames.length,
       ),
     );
   }
@@ -1985,13 +2179,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     final isInstalled = _installedKeys.contains(entry.key);
     final systemModel = _systemsById[entry.systemSlug];
     final raMatch = _raMatches[entry.filename];
-    // Platform sections already say which system a game is for, and every
-    // game in the Installed tab or the recents row is installed.
+    // Platform rows already say which system a game is for.
     final inSection =
         cursor.kind == LibraryCursorKind.game && _sectioned;
-    final showInstalled = isInstalled &&
-        cursor.kind == LibraryCursorKind.game &&
-        _selectedTab != _tabInstalled;
+    // The outline says where the game is, in place of an "installed" badge.
+    final glow = isInstalled
+        ? _installedGlow
+        : entry.isRemote
+            ? _remoteGlow
+            : null;
 
     // Source dot lookup — entry.providerConfig is rehydrated from
     // the games DB; if it was synthesised by SourceResolver it
@@ -2034,7 +2230,8 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           hasThumbnail: entry.hasThumbnail,
           memCacheWidth: cacheWidth,
           scrollSuppression: _scrollSuppression,
-          isInstalled: showInstalled,
+          isInstalled: false,
+          glowColor: glow,
           isSelected: isSelected,
           // The mark badge takes the top-right corner while selecting.
           isFavorite: !_selectMode && _favoriteIds.contains(entry.filename),

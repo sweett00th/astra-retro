@@ -8,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:retro_eshop/features/library/library_screen.dart';
 import 'package:retro_eshop/features/library/widgets/library_section_header.dart';
+import 'package:retro_eshop/features/library/widgets/library_tabs.dart';
 import 'package:retro_eshop/l10n/app_localizations.dart';
 import 'package:retro_eshop/models/config/app_config.dart';
 import 'package:retro_eshop/models/config/provider_config.dart';
@@ -66,7 +67,7 @@ class _StubSourcesNotifier extends SourcesNotifier {
 }
 
 /// Platforms without box-art lookups, so tiles never touch the network: one
-/// built-in system and one the app has no entry for (shown by its id).
+/// built-in system and ones the app has no entry for (shown by their id).
 const _pico = 'pico8'; // "PICO-8"
 const _other = 'unlisted'; // "UNLISTED"
 
@@ -173,10 +174,13 @@ void main() {
     }
   }
 
-  Future<void> press(WidgetTester tester, LogicalKeyboardKey key) async {
-    await tester.sendKeyEvent(key);
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
+  Future<void> press(WidgetTester tester, LogicalKeyboardKey key,
+      {int times = 1}) async {
+    for (var i = 0; i < times; i++) {
+      await tester.sendKeyEvent(key);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
   }
 
   List<LibrarySectionHeader> headers(WidgetTester tester) => tester
@@ -185,6 +189,12 @@ void main() {
 
   List<BaseGameCard> cards(WidgetTester tester) =>
       tester.widgetList<BaseGameCard>(find.byType(BaseGameCard)).toList();
+
+  List<String> titles(WidgetTester tester) =>
+      cards(tester).map((c) => c.displayName).toList();
+
+  final selected =
+      find.byWidgetPredicate((w) => w is BaseGameCard && w.isSelected);
 
   String? selectedCard(WidgetTester tester) => cards(tester)
       .where((c) => c.isSelected)
@@ -197,80 +207,104 @@ void main() {
       .firstOrNull;
 
   int tabCount(WidgetTester tester, String label) {
-    final row = find.ancestor(of: find.text(label), matching: find.byType(Row));
+    final tab = find.descendant(
+        of: find.byType(LibraryTabs), matching: find.text(label));
+    final row = find.ancestor(of: tab, matching: find.byType(Row)).first;
     final texts = tester
-        .widgetList<Text>(find.descendant(of: row.first, matching: find.byType(Text)))
+        .widgetList<Text>(find.descendant(of: row, matching: find.byType(Text)))
         .map((t) => t.data)
         .toList();
     return int.parse(texts.last!);
   }
 
-  testWidgets('opens on Installed with every platform collapsed',
+  testWidgets('opens on All: platforms expanded, installed games first',
       (tester) async {
+    // Sorts before the installed games by name, but is not installed.
+    await tester.runAsync(() => addGame(_pico, 'Aardvark.p8'));
     await pumpLibrary(tester);
 
-    expect(tabCount(tester, 'INSTALLED'), 3);
-    expect(tabCount(tester, 'AVAILABLE'), 2);
-    expect(tabCount(tester, 'ALL'), 5);
+    final labels = tester
+        .widgetList<Text>(find.descendant(
+            of: find.byType(LibraryTabs), matching: find.byType(Text)))
+        .map((t) => t.data)
+        .toList();
+    expect(labels,
+        ['ALL', '6', 'INSTALLED', '3', 'AVAILABLE', '3', 'FAVORITES', '0']);
 
     expect(headers(tester).map((h) => '${h.title} ${h.count}'),
-        ['PICO-8 2', 'UNLISTED 1']);
-    expect(headers(tester).every((h) => !h.expanded), isTrue);
-    expect(cards(tester), isEmpty);
-    expect(selectedHeader(tester), 'PICO-8');
-    expect(find.text('Expand'), findsOneWidget);
-    expect(find.text('RECENTLY PLAYED'), findsNothing);
-  });
+        ['PICO-8 4', 'UNLISTED 2']);
+    expect(headers(tester).every((h) => h.expanded), isTrue);
+    expect(titles(tester),
+        ['Alpha', 'Bravo', 'Aardvark', 'Charlie', 'Delta', 'Echo']);
 
-  testWidgets('A expands a platform and the d-pad walks its games',
-      (tester) async {
-    await pumpLibrary(tester);
+    // Installed tiles glow green, the ones only on the server light blue.
+    expect(cards(tester).map((c) => c.glowColor), [
+      Colors.greenAccent,
+      Colors.greenAccent,
+      Colors.lightBlueAccent,
+      Colors.lightBlueAccent,
+      Colors.greenAccent,
+      Colors.lightBlueAccent,
+    ]);
+    expect(cards(tester).every((c) => !c.isInstalled), isTrue);
 
-    await press(tester, LogicalKeyboardKey.enter);
-    expect(headers(tester).first.expanded, isTrue);
-    expect(cards(tester).map((c) => c.displayName), ['Alpha', 'Bravo']);
-    expect(find.text('Collapse'), findsOneWidget);
-
-    await press(tester, LogicalKeyboardKey.arrowDown);
+    // The cursor starts on a game; nothing has been played yet.
     expect(selectedCard(tester), 'Alpha');
     expect(find.text('Select'), findsOneWidget);
-    await press(tester, LogicalKeyboardKey.arrowRight);
-    expect(selectedCard(tester), 'Bravo');
-    // Right edge of the row: stays put.
-    await press(tester, LogicalKeyboardKey.arrowRight);
-    expect(selectedCard(tester), 'Bravo');
+    expect(find.text('RECENTLY PLAYED'), findsOneWidget);
+    expect(find.textContaining('Nothing yet'), findsOneWidget);
+  });
 
-    // Down from the grid reaches the next platform, up returns to the
-    // column that was left.
+  testWidgets('a platform is one sideways row and collapses from its label',
+      (tester) async {
+    await pumpLibrary(tester);
+
+    await press(tester, LogicalKeyboardKey.arrowRight);
+    expect(selectedCard(tester), 'Bravo');
+    await press(tester, LogicalKeyboardKey.arrowRight, times: 2);
+    // End of the row: stays put.
+    expect(selectedCard(tester), 'Charlie');
+
     await press(tester, LogicalKeyboardKey.arrowDown);
     expect(selectedHeader(tester), 'UNLISTED');
-    expect(selectedCard(tester), isNull);
-    await press(tester, LogicalKeyboardKey.arrowUp);
-    expect(selectedCard(tester), 'Bravo');
+    expect(find.text('Collapse'), findsOneWidget);
+    await press(tester, LogicalKeyboardKey.arrowDown);
+    expect(selectedCard(tester), 'Delta');
 
-    // Collapsing from the header hides the games again.
+    // Going back up returns to the game the first row was left on.
+    await press(tester, LogicalKeyboardKey.arrowUp, times: 2);
+    expect(selectedCard(tester), 'Charlie');
+
     await press(tester, LogicalKeyboardKey.arrowUp);
     expect(selectedHeader(tester), 'PICO-8');
     await press(tester, LogicalKeyboardKey.enter);
-    expect(cards(tester), isEmpty);
+    expect(headers(tester).first.expanded, isFalse);
+    expect(titles(tester), ['Delta', 'Echo']);
+    expect(find.text('Expand'), findsOneWidget);
+
+    await press(tester, LogicalKeyboardKey.enter);
+    expect(titles(tester), ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']);
   });
 
-  testWidgets('tabs cycle Installed, Available, All', (tester) async {
+  testWidgets('tabs cycle All, Installed, Available', (tester) async {
     await pumpLibrary(tester);
 
     await press(tester, LogicalKeyboardKey.bracketRight);
     expect(headers(tester).map((h) => '${h.title} ${h.count}'),
-        ['PICO-8 1', 'UNLISTED 1']);
-    await press(tester, LogicalKeyboardKey.enter);
-    expect(cards(tester).map((c) => c.displayName), ['Charlie']);
+        ['PICO-8 2', 'UNLISTED 1']);
+    expect(titles(tester), ['Alpha', 'Bravo', 'Delta']);
 
-    // Each tab remembers its own expanded platforms.
     await press(tester, LogicalKeyboardKey.bracketRight);
-    expect(headers(tester).map((h) => '${h.title} ${h.count}'),
-        ['PICO-8 3', 'UNLISTED 2']);
-    expect(cards(tester), isEmpty);
+    expect(titles(tester), ['Charlie', 'Echo']);
+
+    // Each tab remembers which platforms it has collapsed.
+    await press(tester, LogicalKeyboardKey.arrowUp);
+    await press(tester, LogicalKeyboardKey.enter);
+    expect(titles(tester), ['Echo']);
     await press(tester, LogicalKeyboardKey.bracketLeft);
-    expect(cards(tester).map((c) => c.displayName), ['Charlie']);
+    expect(titles(tester), ['Alpha', 'Bravo', 'Delta']);
+    await press(tester, LogicalKeyboardKey.bracketRight);
+    expect(titles(tester), ['Echo']);
   });
 
   testWidgets('recently played games sit above the platforms', (tester) async {
@@ -284,17 +318,19 @@ void main() {
     });
 
     expect(find.text('RECENTLY PLAYED'), findsOneWidget);
-    expect(cards(tester).map((c) => c.displayName), ['Delta', 'Alpha']);
+    expect(find.textContaining('Nothing yet'), findsNothing);
+    expect(titles(tester),
+        ['Delta', 'Alpha', 'Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']);
     // The cursor starts on the most recent game.
-    expect(selectedCard(tester), 'Delta');
+    expect(cards(tester).indexWhere((c) => c.isSelected), 0);
 
     await press(tester, LogicalKeyboardKey.arrowRight);
-    expect(selectedCard(tester), 'Alpha');
+    expect(cards(tester).indexWhere((c) => c.isSelected), 1);
     await press(tester, LogicalKeyboardKey.arrowDown);
     expect(selectedHeader(tester), 'PICO-8');
     // Back up returns to the tile that was left.
     await press(tester, LogicalKeyboardKey.arrowUp);
-    expect(selectedCard(tester), 'Alpha');
+    expect(cards(tester).indexWhere((c) => c.isSelected), 1);
   });
 
   testWidgets('X marks games, a whole platform, and asks before uninstalling',
@@ -302,8 +338,6 @@ void main() {
     await pumpLibrary(tester);
     expect(find.text('Multi-select'), findsOneWidget);
 
-    await press(tester, LogicalKeyboardKey.enter);
-    await press(tester, LogicalKeyboardKey.arrowDown);
     await press(tester, LogicalKeyboardKey.gameButtonX);
     expect(find.text('Uninstall (1)'), findsOneWidget);
     expect(find.text('1 MARKED TO UNINSTALL'), findsOneWidget);
@@ -319,9 +353,16 @@ void main() {
     expect(find.text('Uninstall (2)'), findsOneWidget);
     expect(headers(tester).first.markedCount, 2);
 
+    // A game that is not installed cannot be marked.
+    await press(tester, LogicalKeyboardKey.arrowDown);
+    await press(tester, LogicalKeyboardKey.arrowRight, times: 2);
+    expect(selectedCard(tester), 'Charlie');
+    await press(tester, LogicalKeyboardKey.enter);
+    expect(find.text('Uninstall (2)'), findsOneWidget);
+
     // Tabs are locked while selecting.
     await press(tester, LogicalKeyboardKey.bracketRight);
-    expect(headers(tester).first.count, 2);
+    expect(headers(tester).first.count, 3);
 
     // Y asks first; Cancel is the default choice.
     await press(tester, LogicalKeyboardKey.keyI);
@@ -338,71 +379,60 @@ void main() {
     expect(tabCount(tester, 'INSTALLED'), 3);
   });
 
-  testWidgets('the page scrolls to keep the cursor on screen', (tester) async {
+  testWidgets('rows and the page scroll to keep the cursor on screen',
+      (tester) async {
     final names = [
-      for (var i = 0; i < 40; i++) 'Game ${i.toString().padLeft(2, '0')}.p8',
+      for (var i = 0; i < 30; i++) 'Game ${i.toString().padLeft(2, '0')}.p8',
     ];
     await tester.runAsync(() async {
       for (final name in names) {
         await addGame(_pico, name);
       }
+      for (final platform in ['unlisted-b', 'unlisted-c', 'unlisted-d']) {
+        await addGame(platform, 'Only $platform.p8');
+      }
     });
     await pumpLibrary(tester, installed: names.toSet());
-    expect(headers(tester).single.count, 40);
 
-    Rect selectedRect() => tester.getRect(
-        find.byWidgetPredicate((w) => w is BaseGameCard && w.isSelected));
-
-    // 6 columns: six presses down from the header reach the sixth row,
-    // far below the first screen.
-    await press(tester, LogicalKeyboardKey.enter);
-    for (var i = 0; i < 6; i++) {
-      await press(tester, LogicalKeyboardKey.arrowDown);
+    void expectOnScreen() {
+      final rect = tester.getRect(selected);
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(1280));
+      expect(rect.top, greaterThanOrEqualTo(96));
+      expect(rect.bottom, lessThanOrEqualTo(800));
     }
-    expect(selectedCard(tester), 'Game 30');
-    expect(selectedRect().top, greaterThanOrEqualTo(96));
-    expect(selectedRect().bottom, lessThanOrEqualTo(800));
 
-    await press(tester, LogicalKeyboardKey.arrowRight);
-    expect(selectedCard(tester), 'Game 31');
-    // The last row is short: the column is clamped, then restored going up.
-    await press(tester, LogicalKeyboardKey.arrowDown);
-    expect(selectedCard(tester), 'Game 37');
-    expect(selectedRect().bottom, lessThanOrEqualTo(800));
+    // Far along the first platform's row.
+    expect(selectedCard(tester), 'Game 00');
+    await press(tester, LogicalKeyboardKey.arrowRight, times: 14);
+    expect(selectedCard(tester), 'Game 14');
+    expectOnScreen();
+    // The start of the row has scrolled away.
+    expect(find.text('Game 00'), findsNothing);
 
-    for (var i = 0; i < 7; i++) {
-      await press(tester, LogicalKeyboardKey.arrowUp);
-    }
-    expect(selectedHeader(tester), 'PICO-8');
-    expect(
-        tester.getRect(find.byType(LibrarySectionHeader)).top,
-        greaterThanOrEqualTo(96));
+    // Down through four more platforms: a header and a row each.
+    await press(tester, LogicalKeyboardKey.arrowDown, times: 8);
+    expect(selectedCard(tester), 'Only unlisted-d');
+    expectOnScreen();
+
+    // Back at the top the first row is where it was left.
+    await press(tester, LogicalKeyboardKey.arrowUp, times: 8);
+    expect(selectedCard(tester), 'Game 14');
+    expectOnScreen();
   });
 
   testWidgets('tile size fits the screen until L or R picks a zoom level',
       (tester) async {
-    final names = [for (var i = 0; i < 20; i++) 'Game ${i + 10}.p8'];
-    await tester.runAsync(() async {
-      for (final name in names) {
-        await addGame(_pico, name);
-      }
-    });
-    await pumpLibrary(tester, installed: names.toSet(), savedColumns: null);
-    await press(tester, LogicalKeyboardKey.enter);
+    await pumpLibrary(tester, savedColumns: null);
 
-    int tilesInFirstRow() {
-      final tops = cards(tester)
-          .map((c) => tester.getRect(find.byWidget(c)).top)
-          .toList();
-      return tops.where((top) => top == tops.first).length;
-    }
+    double tileWidth() => tester.getSize(find.byType(BaseGameCard).first).width;
 
-    // 1280 wide: eight covers of about 145 fit.
-    expect(tilesInFirstRow(), 8);
+    // 1280 wide: eight whole covers of about 145 and a slice of a ninth.
+    expect(tileWidth(), closeTo((1280 - 24 - 8 * 14) / 8.35, 0.01));
     expect(storage.getGridColumns('library_covers', fallback: 0), 0);
 
     await press(tester, LogicalKeyboardKey.pageDown);
-    expect(tilesInFirstRow(), 7);
+    expect(tileWidth(), closeTo((1280 - 24 - 7 * 14) / 7.35, 0.01));
     expect(storage.getGridColumns('library_covers', fallback: 0), 7);
   });
 
@@ -428,9 +458,8 @@ void main() {
       ]),
     );
     expect(tabCount(tester, 'INSTALLED'), 2);
+    expect(selectedCard(tester), 'Alpha');
 
-    await press(tester, LogicalKeyboardKey.enter);
-    await press(tester, LogicalKeyboardKey.arrowDown);
     await press(tester, LogicalKeyboardKey.gameButtonX);
     expect(find.text('Uninstall (1)'), findsOneWidget);
     await press(tester, LogicalKeyboardKey.keyI);
@@ -451,32 +480,33 @@ void main() {
     expect(find.text('Uninstalled 1 game.'), findsOneWidget);
     expect(find.text('Multi-select'), findsOneWidget);
     expect(tabCount(tester, 'INSTALLED'), 1);
-    // Alpha is still in the library, now as a download.
     expect(tabCount(tester, 'AVAILABLE'), 4);
     expect(tabCount(tester, 'ALL'), 5);
+    // Alpha stays in the library as a download, after the installed games.
+    expect(titles(tester).take(3), ['Bravo', 'Alpha', 'Charlie']);
+    expect(cards(tester)[1].glowColor, Colors.lightBlueAccent);
 
     // Let the notification finish.
     await tester.pump(const Duration(seconds: 5));
     await tester.pump(const Duration(seconds: 1));
   });
 
-  testWidgets('search shows one flat list and restores the platforms after',
+  testWidgets('search shows one flat grid and restores the platforms after',
       (tester) async {
     await pumpLibrary(tester);
 
     await press(tester, LogicalKeyboardKey.keyI);
     await tester.enterText(find.byType(TextField), 'a');
     await tester.pump(const Duration(milliseconds: 200));
-    // Installed games whose title contains "a".
+    // Every game whose title contains "a", by name.
     expect(headers(tester), isEmpty);
-    expect(cards(tester).map((c) => c.displayName),
-        ['Alpha', 'Bravo', 'Delta']);
+    expect(titles(tester), ['Alpha', 'Bravo', 'Charlie', 'Delta']);
+    expect(find.text('RECENTLY PLAYED'), findsNothing);
 
     // B leaves the text field first, then closes the search.
-    await press(tester, LogicalKeyboardKey.escape);
-    await press(tester, LogicalKeyboardKey.escape);
+    await press(tester, LogicalKeyboardKey.escape, times: 2);
     await tester.pump(const Duration(milliseconds: 200));
     expect(headers(tester).map((h) => h.title), ['PICO-8', 'UNLISTED']);
-    expect(cards(tester), isEmpty);
+    expect(titles(tester), ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']);
   });
 }
