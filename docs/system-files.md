@@ -51,8 +51,9 @@ platform → BIOS / Firmware / Keys / Other → asset → version → files.
 ## Downloading
 
 - The first download asks for a folder with Android's folder picker. That
-  becomes the default destination. **Destinations** changes it, and a platform
-  can have a folder of its own.
+  becomes the default destination. **Destinations** changes it, lets a platform
+  have a folder of its own, and can forget a folder again, which hands its
+  access back to Android without touching the files in it.
 - Pick a folder your emulator reads, or one you import from. Android does not
   let an app write into another app's `Android/data` folder and the picker does
   not offer it. For an emulator that keeps these files in its private storage,
@@ -70,6 +71,9 @@ platform → BIOS / Firmware / Keys / Other → asset → version → files.
   app asks before replacing it.
 - If Android took the folder access back, or the folder is gone, the app says
   so and asks for the folder again before downloading anything.
+- Whether a saved file is still in its folder is looked up when its screen
+  opens and again whenever the app comes back to the foreground, so a file
+  another app moved or changed shows as such.
 
 "Saved to …" and `ON THIS DEVICE` mean exactly that. Whether the emulator has
 imported the file is something the app cannot see; **Imported in my emulator**
@@ -123,7 +127,14 @@ ROMDROP_LIVE_URL=https://127.0.0.1:3002 ROMDROP_LIVE_ADMIN_PASSWORD=change-me \
 
 The folder bridge (`SafStorage.kt`) and the look of the screens can only be
 checked on Android. Install with
-`adb install -r build/app/outputs/flutter-apk/app-debug.apk`, then:
+`adb install -r build/app/outputs/flutter-apk/app-debug.apk`, then walk the
+list below. RomDrop's `docs/integrations/r-shop.md` shows how to reach a test
+server on the development machine from the tablet.
+
+Last walked on 2026-10-05 on a REDMAGIC Astra (Android 16) against a RomDrop
+test container holding made-up files, driven over ADB: items 1 to 10 passed,
+with every saved file compared by SHA-256 on the tablet. Items 11 and 12 were
+not checked.
 
 1. **Home** — the System Files tile follows the Library in carousel and grid;
    the **+** menu has System Files; **A** opens it.
