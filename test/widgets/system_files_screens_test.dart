@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:retro_eshop/core/widgets/console_focusable.dart';
 import 'package:retro_eshop/features/system_files/romdrop_connection_screen.dart';
 import 'package:retro_eshop/features/system_files/system_asset_screen.dart';
 import 'package:retro_eshop/features/system_files/system_assets_screen.dart';
@@ -23,6 +24,15 @@ const _x = LogicalKeyboardKey.gameButtonX;
 const _down = LogicalKeyboardKey.arrowDown;
 const _up = LogicalKeyboardKey.arrowUp;
 
+/// Whether the row titled [title] is drawn with the focus outline.
+bool _highlighted(WidgetTester tester, String title) {
+  final row = find.ancestor(
+      of: find.text(title), matching: find.byType(ConsoleFocusable));
+  final outline = tester.widget<Container>(
+      find.descendant(of: row, matching: find.byType(Container)).first);
+  return (outline.decoration! as BoxDecoration).border != null;
+}
+
 void main() {
   group('System Files', () {
     testWidgets('not connected: says so and leads to the connection screen',
@@ -36,6 +46,29 @@ void main() {
 
       await press(tester, _a);
       expect(find.byType(RomDropConnectionScreen), findsOneWidget);
+    });
+
+    testWidgets('the cursor stays visible when the list fills in above it',
+        (tester) async {
+      final h = await RomDropHarness.create();
+      SyntheticBios().addTo(h);
+      h.api.hold = Completer<void>();
+      await h.pump(tester, const SystemFilesScreen(), settle: false);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      // Still loading: the cursor is on the first of the two fixed rows.
+      expect(_highlighted(tester, 'Destinations'), isTrue);
+
+      h.api.hold!.complete();
+      h.api.hold = null;
+      await tester.pumpAndSettle();
+
+      // The platforms arrived above it. The first row has the cursor now,
+      // and it is the one that looks focused.
+      expect(_highlighted(tester, 'PlayStation'), isTrue);
+      expect(_highlighted(tester, 'Destinations'), isFalse);
+      await press(tester, _a);
+      expect(find.byType(SystemKindsScreen), findsOneWidget);
     });
 
     testWidgets('loading, then the platforms that have files', (tester) async {
@@ -92,7 +125,8 @@ void main() {
       await h.pump(tester, const SystemFilesScreen());
 
       expect(find.text('RomDrop no longer accepts this device'), findsOneWidget);
-      expect(find.textContaining('Pair it again'), findsOneWidget);
+      expect(find.textContaining('Pair it again under RomDrop connection'),
+          findsOneWidget);
       expect(find.text('RomDrop connection'), findsOneWidget);
     });
 
@@ -168,6 +202,27 @@ void main() {
       await press(tester, _down); // already at the bottom
       await press(tester, _a);
       expect(find.byType(RomDropConnectionScreen), findsOneWidget);
+    });
+
+    testWidgets('rows that changed under another screen still get the cursor',
+        (tester) async {
+      final h = await RomDropHarness.create(connected: false);
+      SyntheticBios().addTo(h);
+      await h.pump(tester, const SystemFilesScreen());
+      await press(tester, _a); // "Connect to RomDrop"
+      expect(find.byType(RomDropConnectionScreen), findsOneWidget);
+
+      // Pairing succeeds while that screen is on top: the list underneath
+      // goes from one row to several.
+      await h.controller.connect(RomDropHarness.connection, testToken);
+      await tester.pumpAndSettle();
+      await press(tester, _b);
+      expect(find.byType(RomDropConnectionScreen), findsNothing);
+      expect(find.text('PlayStation'), findsOneWidget);
+
+      await press(tester, _a);
+      expect(find.byType(SystemKindsScreen), findsOneWidget,
+          reason: 'the first row is marked, so A opens it');
     });
 
     testWidgets(
@@ -353,6 +408,12 @@ void main() {
       expect(h.transfers.started.single.folder.uri, biosFolder.uri);
       expect(h.transfers.started.single.replace, isFalse);
 
+      FocusNode fileRowFocus() => tester
+          .widget<ConsoleFocusable>(find.byType(ConsoleFocusable).first)
+          .focusNode!;
+      final cursor = fileRowFocus();
+      expect(cursor.hasFocus, isTrue);
+
       h.transfers.finish(bios.file.id);
       await tester.pumpAndSettle();
 
@@ -360,6 +421,10 @@ void main() {
       expect(find.text('ON THIS DEVICE'), findsOneWidget);
       expect(h.storage.folders[biosFolder.uri]![name], bios.current,
           reason: 'saved under its original name');
+      // A row appeared below; the cursor stays on the file, on the same
+      // focus node, so its highlight is not lost.
+      expect(identical(fileRowFocus(), cursor), isTrue);
+      expect(cursor.hasFocus, isTrue);
       // On the device is not the same as in the emulator.
       expect(find.text('Imported in my emulator: not yet'), findsOneWidget);
       expect(find.textContaining(RegExp(r'\bInstalled\b')), findsNothing);
@@ -479,7 +544,7 @@ void main() {
       const other = SystemFileFolder('tree:other', 'Internal storage/BIOS');
       h.storage.nextPick = other;
       await tapText(tester, name);
-      await press(tester, _a); // "Choose folder again"
+      await press(tester, _a); // "Choose folder"
 
       expect(h.storage.pickInitialUris.single, biosFolder.uri);
       expect(h.transfers.started.single.folder.uri, other.uri);
@@ -508,7 +573,7 @@ void main() {
       h.storage.folders[biosFolder.uri]!.remove(name);
       await open(tester);
 
-      expect(find.textContaining('is no longer there'), findsOneWidget);
+      expect(find.textContaining('is gone or has changed'), findsOneWidget);
       expect(find.text('ON THIS DEVICE'), findsNothing);
       expect(find.textContaining('Imported in my emulator'), findsNothing);
     });
@@ -567,6 +632,27 @@ void main() {
       expect(find.text('ON THIS DEVICE'), findsNWidgets(2));
       expect(find.text('Download all'), findsNothing);
       expect(find.text('Imported in my emulator: not yet'), findsOneWidget);
+    });
+
+    testWidgets('coming back to the app re-checks what is in the folder',
+        (tester) async {
+      h = await RomDropHarness.create();
+      await h.useFolder();
+      final synthetic = SyntheticBios();
+      h.storage.folders[biosFolder.uri]![name] = synthetic.current;
+      await h.controller.adoptExisting(
+          asset: synthetic.asset, file: synthetic.file, folder: biosFolder);
+      await open(tester);
+      expect(find.text('ON THIS DEVICE'), findsOneWidget);
+
+      // Another app deletes the file while this one is in the background.
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      h.storage.folders[biosFolder.uri]!.remove(name);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(find.text('ON THIS DEVICE'), findsNothing);
+      expect(find.textContaining('is gone or has changed'), findsOneWidget);
     });
 
     testWidgets('a sensitive asset is marked', (tester) async {
@@ -681,6 +767,23 @@ void main() {
       expect(find.text(other.name), findsOneWidget);
       expect(h.storage.pickInitialUris.single, biosFolder.uri);
       expect(h.storage.released, [biosFolder.uri]);
+    });
+
+    testWidgets('the default folder can be forgotten, which gives it back',
+        (tester) async {
+      final h = await RomDropHarness.create();
+      await h.useFolder();
+      h.storage.folders[biosFolder.uri]!['kept.bin'] = [1, 2, 3];
+      await h.pump(tester, const SystemDestinationsScreen());
+
+      await tapText(tester, 'Forget the default folder');
+
+      expect(h.controller.destinations.defaultFolder, isNull);
+      expect(h.storage.released, [biosFolder.uri]);
+      expect(find.text('Not chosen yet'), findsOneWidget);
+      expect(find.text('Forget the default folder'), findsNothing);
+      expect(h.storage.folders[biosFolder.uri]!['kept.bin'], [1, 2, 3],
+          reason: 'forgetting a folder deletes nothing');
     });
 
     testWidgets('a platform can have a folder of its own, and drop it again',

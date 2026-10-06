@@ -6,6 +6,7 @@ import '../../models/romdrop_models.dart';
 import '../../providers/romdrop_providers.dart';
 import '../../services/romdrop/romdrop_api_service.dart';
 import '../../services/romdrop/romdrop_controller.dart';
+import '../../services/romdrop/system_file_download_manager.dart';
 import '../../utils/friendly_error.dart';
 import 'romdrop_connection_screen.dart';
 import 'system_assets_screen.dart';
@@ -116,12 +117,16 @@ class _SystemFilesScreenState extends ConsumerState<SystemFilesScreen> {
   }
 
   SystemMessage _errorMessage(RomDropException error) {
+    if (error.kind == RomDropErrorKind.unauthorized) {
+      // The usual message would only repeat the title.
+      return const SystemMessage(
+          Icons.lock_outline_rounded,
+          'RomDrop no longer accepts this device',
+          'It was revoked or removed on the server. Pair it again under RomDrop connection.',
+          Colors.redAccent);
+    }
     final (icon, title) = switch (error.kind) {
       RomDropErrorKind.offline => (Icons.wifi_off_rounded, 'RomDrop is not reachable'),
-      RomDropErrorKind.unauthorized => (
-          Icons.lock_outline_rounded,
-          'RomDrop no longer accepts this device'
-        ),
       RomDropErrorKind.certificate => (
           Icons.gpp_maybe_outlined,
           'RomDrop\'s certificate is not accepted'
@@ -183,6 +188,8 @@ class _SystemFilesScreenState extends ConsumerState<SystemFilesScreen> {
 
     final tasks = controller.downloads.tasks;
     final active = tasks.where((t) => !t.status.finished).length;
+    final waiting =
+        tasks.where((t) => t.status == SystemFileTaskStatus.failed).length;
     final platforms = _platforms;
     final capabilities = _capabilities;
     final hidden = platforms == null
@@ -228,6 +235,7 @@ class _SystemFilesScreenState extends ConsumerState<SystemFilesScreen> {
                     '${kind.label} ${platform.count(kind)}'
               ].join(' · '),
               leading: platformIcon(platform),
+              leadingWidth: 72,
               trailing:
                   '${platform.assetCount} ${platform.assetCount == 1 ? 'file' : 'files'}',
               onSelect: () => _open(SystemKindsScreen(platform: platform)),
@@ -243,7 +251,9 @@ class _SystemFilesScreenState extends ConsumerState<SystemFilesScreen> {
             title: 'Transfers',
             subtitle: active > 0
                 ? '$active in progress'
-                : 'Finished and failed system-file downloads',
+                : waiting > 0
+                    ? '$waiting waiting to be continued'
+                    : 'Finished downloads',
             leading: const Icon(Icons.swap_vert_rounded, color: Colors.white54),
             trailing: '${tasks.length}',
             onSelect: () => _open(const SystemTransfersScreen()),

@@ -53,6 +53,9 @@ void main() {
     const colon = 'ab:CD:ef:01';
     expect(RomDropApiService.canonicalFingerprint(colon), 'ABCDEF01');
     expect(RomDropApiService.formatFingerprint('abcdef01'), 'AB:CD:EF:01');
+    // Shown in rows of eight bytes, so no byte is split by a line break.
+    final block = RomDropApiService.fingerprintBlock(List.filled(32, 'ab').join());
+    expect(block.split('\n'), List.filled(4, List.filled(8, 'AB').join(':')));
   });
 
   group('requests', () {

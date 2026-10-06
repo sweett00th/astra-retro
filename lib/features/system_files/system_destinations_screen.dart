@@ -27,12 +27,27 @@ class SystemDestinationsScreen extends ConsumerStatefulWidget {
 }
 
 class _SystemDestinationsScreenState
-    extends ConsumerState<SystemDestinationsScreen> {
+    extends ConsumerState<SystemDestinationsScreen>
+    with WidgetsBindingObserver {
   RomDropController? _controller;
   final Map<String, bool> _writable = {};
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Access can be withdrawn in Android's settings while the app is in the
+  /// background.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.destinations.removeListener(_refresh);
     super.dispose();
   }
@@ -106,6 +121,15 @@ class _SystemDestinationsScreenState
     await _releaseUnused(current);
   }
 
+  /// Stops using the default folder and hands its access back to Android.
+  /// Files already saved there stay; the next download asks for a folder.
+  Future<void> _clearDefault() async {
+    final controller = _controller!;
+    final current = controller.destinations.defaultFolder;
+    await controller.destinations.setDefault(null);
+    await _releaseUnused(current);
+  }
+
   String _describe(SystemFileFolder? folder, String whenUnset) {
     if (folder == null) return whenUnset;
     return _writable[folder.uri] == false
@@ -160,6 +184,14 @@ class _SystemDestinationsScreenState
             title: 'Use the default folder for ${widget.platformName ?? platformId}',
             leading: const Icon(Icons.undo_rounded, color: Colors.white54),
             onSelect: _clearPlatform,
+          ),
+        if (destinations.defaultFolder != null)
+          SystemRow(
+            title: 'Forget the default folder',
+            subtitle:
+                'Saved files stay where they are. The next download asks where to save.',
+            leading: const Icon(Icons.folder_off_outlined, color: Colors.white54),
+            onSelect: _clearDefault,
           ),
       ],
     );

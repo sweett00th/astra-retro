@@ -96,6 +96,16 @@ class RomDropApiService {
     ].join(':');
   }
 
+  /// The fingerprint in rows of eight bytes: easier to compare by eye than
+  /// one long line that wraps wherever the screen ends.
+  static String fingerprintBlock(String value) {
+    final bytes = formatFingerprint(value).split(':');
+    return [
+      for (var i = 0; i < bytes.length; i += 8)
+        bytes.skip(i).take(8).join(':')
+    ].join('\n');
+  }
+
   static String fingerprintOf(X509Certificate certificate) =>
       formatFingerprint(sha256.convert(certificate.der).toString());
 

@@ -43,25 +43,25 @@ class _SystemTransfersScreenState extends ConsumerState<SystemTransfersScreen> {
     return switch (task.status) {
       SystemFileTaskStatus.completed => SystemRow(
           title: title,
-          subtitle: '${file.filename} · $size · ${task.statusText}\nSelect to remove from this list',
+          subtitle: '${file.relativePath} · $size · ${task.statusText}\nSelect to remove from this list',
           leading: const Icon(Icons.check_circle_outline, color: Colors.greenAccent),
           onSelect: () => downloads.dismiss(task.id),
         ),
       SystemFileTaskStatus.failed => SystemRow(
           title: title,
-          subtitle: '${file.filename} · $size · ${task.statusText}\nSelect to continue',
+          subtitle: '${file.relativePath} · $size · ${task.statusText}\nSelect to continue',
           leading: const Icon(Icons.error_outline, color: Colors.redAccent),
           onSelect: () => downloads.retry(task.id),
         ),
       SystemFileTaskStatus.cancelled => SystemRow(
           title: title,
-          subtitle: '${file.filename} · $size · Cancelled\nSelect to remove from this list',
+          subtitle: '${file.relativePath} · $size · Cancelled\nSelect to remove from this list',
           leading: const Icon(Icons.cancel_outlined, color: Colors.white54),
           onSelect: () => downloads.dismiss(task.id),
         ),
       _ => SystemRow(
           title: title,
-          subtitle: '${file.filename} · $size · ${task.statusText}\nSelect to cancel',
+          subtitle: '${file.relativePath} · $size · ${task.statusText}\nSelect to cancel',
           leading: const Icon(Icons.downloading_rounded, color: Colors.white),
           progress: task.status == SystemFileTaskStatus.queued ? null : task.progress,
           onSelect: () => downloads.cancel(task.id),

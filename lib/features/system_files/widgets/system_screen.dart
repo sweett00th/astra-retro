@@ -5,12 +5,16 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/console_focusable.dart';
 import '../../../widgets/console_hud.dart';
 
+/// Height the button hints take at the bottom of a screen.
+const hudClearance = 84.0;
+
 /// One selectable line of a System Files screen.
 class SystemRow {
   const SystemRow({
     required this.title,
     this.subtitle,
     this.leading,
+    this.leadingWidth = 32,
     this.badges = const [],
     this.trailing,
     this.progress,
@@ -21,6 +25,9 @@ class SystemRow {
   final String title;
   final String? subtitle;
   final Widget? leading;
+
+  /// Wider for a platform's wordmark, which is unreadable in a square.
+  final double leadingWidth;
   final List<SystemBadge> badges;
   final String? trailing;
 
@@ -96,12 +103,22 @@ class _SystemScreenState extends State<SystemScreen> {
   final _screenFocus = FocusNode(debugLabel: 'system_screen');
   final _scroll = ScrollController();
   List<FocusNode> _nodes = const [];
+
+  /// The row the cursor is on, or was on before focus left the rows.
   int _focused = 0;
+  ModalRoute<Object?>? _route;
 
   @override
   void initState() {
     super.initState();
+    _screenFocus.addListener(_handFocusToRow);
     _syncNodes();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
   }
 
   @override
@@ -110,22 +127,46 @@ class _SystemScreenState extends State<SystemScreen> {
     if (widget.rows.length != _nodes.length) _syncNodes();
   }
 
+  FocusNode _newNode(int index) {
+    final node = FocusNode(debugLabel: 'system_row_$index');
+    // Touch moves focus too; remember where it went.
+    node.addListener(() {
+      if (node.hasFocus) _focused = index;
+    });
+    return node;
+  }
+
+  /// Rows keep their focus node for as long as their position exists; only
+  /// the end of the list grows or shrinks. The cursor therefore stays put
+  /// while rows come and go, and a focused row is never handed a new node.
   void _syncNodes() {
-    final hadFocus = _nodes.any((n) => n.hasFocus) || _nodes.isEmpty;
-    for (final node in _nodes) {
+    final wanted = widget.rows.length;
+    final wasEmpty = _nodes.isEmpty;
+    final lostCursor = _nodes.skip(wanted).any((node) => node.hasFocus);
+    for (final node in _nodes.skip(wanted)) {
       node.dispose();
     }
-    _nodes = List.generate(
-        widget.rows.length, (i) => FocusNode(debugLabel: 'system_row_$i'));
+    _nodes = [
+      ..._nodes.take(wanted),
+      for (var i = _nodes.length; i < wanted; i++) _newNode(i),
+    ];
     _focused = _nodes.isEmpty ? 0 : _focused.clamp(0, _nodes.length - 1);
+    if (!wasEmpty && !lostCursor && _nodes.isNotEmpty) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (_nodes.isEmpty) {
-        _screenFocus.requestFocus();
-      } else if (hadFocus || _screenFocus.hasPrimaryFocus) {
-        _nodes[_focused].requestFocus();
-      }
+      // Only the screen on top may take focus; one that is covered gets it
+      // back through [_handFocusToRow] when it is shown again.
+      if (!mounted || !(_route?.isCurrent ?? true)) return;
+      (_nodes.isEmpty ? _screenFocus : _nodes[_focused]).requestFocus();
     });
+  }
+
+  /// Focus lands on the screen itself when the row it was on went away while
+  /// another screen was on top. Pass it on, so a row is always marked and A
+  /// acts on what the user sees.
+  void _handFocusToRow() {
+    if (_screenFocus.hasPrimaryFocus && _nodes.isNotEmpty) {
+      _nodes[_focused].requestFocus();
+    }
   }
 
   @override
@@ -139,12 +180,22 @@ class _SystemScreenState extends State<SystemScreen> {
   }
 
   void _move(int delta) {
+    if (_nodes.isEmpty) {
+      // Nothing to focus: Up and Down scroll, so the text can still be read
+      // with a controller.
+      _scrollBy(delta);
+      return;
+    }
     final current = _nodes.indexWhere((n) => n.hasFocus);
-    final from = current < 0 ? _focused : current;
-    final to = _nodes.isEmpty ? 0 : (from + delta).clamp(0, _nodes.length - 1);
-    if (_nodes.isEmpty || to == from) {
-      // Nothing further to focus: Up and Down scroll, so text above the
-      // first row or on a screen without rows can be read with a controller.
+    if (current < 0) {
+      // No row is marked: the first press marks one rather than passing it.
+      _nodes[_focused].requestFocus();
+      return;
+    }
+    final to = (current + delta).clamp(0, _nodes.length - 1);
+    if (to == current) {
+      // At either end the press scrolls, which brings text above the first
+      // row back into view.
       _scrollBy(delta);
       return;
     }
@@ -204,14 +255,19 @@ class _SystemScreenState extends State<SystemScreen> {
               focusNode: _screenFocus,
               autofocus: true,
               onKeyEvent: _handleKey,
-              child: Center(
+              // From the top, so the title stays put from screen to screen
+              // however many rows there are. The list ends above the button
+              // hints, so no row is ever half hidden behind them.
+              child: Container(
+                alignment: Alignment.topCenter,
+                padding: const EdgeInsets.only(bottom: hudClearance),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 720),
                   // Every row is built, not only those in view: a row has to
                   // exist before the controller can move focus to it.
                   child: SingleChildScrollView(
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 80),
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -239,6 +295,13 @@ class _SystemScreenState extends State<SystemScreen> {
                         ],
                         for (var i = 0; i < rows.length; i++)
                           Padding(
+                            // Keyed, so a row keeps its element (and with it
+                            // its focus highlight) when the widgets around it
+                            // come and go. Without the key Flutter pairs
+                            // rows with whatever sits in the same place, and
+                            // a row that already has focus can end up in a
+                            // new element that never saw it arrive.
+                            key: ValueKey('system_row_$i'),
                             padding: const EdgeInsets.only(bottom: 8),
                             child: ConsoleFocusable(
                               focusNode: _nodes[i],
@@ -333,7 +396,8 @@ class _RowBody extends StatelessWidget {
           Row(
             children: [
               if (row.leading != null) ...[
-                SizedBox(width: 32, height: 32, child: row.leading),
+                SizedBox(
+                    width: row.leadingWidth, height: 32, child: row.leading),
                 const SizedBox(width: 12),
               ],
               Expanded(

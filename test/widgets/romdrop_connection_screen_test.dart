@@ -127,7 +127,9 @@ void main() {
 
       await tapText(tester, 'Connect');
       expect(find.text('Check RomDrop\'s certificate'), findsOneWidget);
-      expect(find.textContaining(_fingerprint), findsOneWidget);
+      expect(
+          find.textContaining(RomDropApiService.fingerprintBlock(_fingerprint)),
+          findsOneWidget);
       expect(find.textContaining('Status page'), findsOneWidget);
 
       await press(tester, _b); // not the same: go back
@@ -144,7 +146,10 @@ void main() {
           _fingerprint.toLowerCase());
       expect(find.text('Encryption: HTTPS, certificate you accepted'),
           findsOneWidget);
-      expect(find.text('Certificate SHA-256: $_fingerprint'), findsOneWidget);
+      expect(
+          find.text(
+              'Certificate SHA-256: \n${RomDropApiService.fingerprintBlock(_fingerprint)}'),
+          findsOneWidget);
     });
 
     testWidgets('a certificate that changed is not accepted silently',
@@ -163,7 +168,10 @@ void main() {
       await tapText(tester, 'Pair again');
 
       expect(find.text('RomDrop\'s certificate changed'), findsOneWidget);
-      expect(find.textContaining(_otherFingerprint), findsOneWidget);
+      expect(
+          find.textContaining(
+              RomDropApiService.fingerprintBlock(_otherFingerprint)),
+          findsOneWidget);
       await press(tester, _b);
 
       expect(server.paired, isEmpty);

@@ -13,6 +13,7 @@ import '../../services/romdrop/romdrop_controller.dart';
 import '../../utils/friendly_error.dart';
 import '../../widgets/console_hud.dart';
 import '../emulators/emulator_steps_screen.dart';
+import 'widgets/system_screen.dart' show hudClearance;
 
 typedef RomDropProbe = Future<String?> Function(String baseUrl);
 typedef RomDropPair = Future<RomDropPairing> Function({
@@ -233,7 +234,7 @@ class _RomDropConnectionScreenState
                 : 'RomDrop\'s certificate changed',
             '${pin == null ? 'RomDrop uses a self-signed certificate, so this device cannot verify it by itself.' : 'The server now presents a different certificate than the one you accepted.'} '
                 'Compare this SHA-256 fingerprint with the one on the Status page of RomDrop\'s admin site:\n\n'
-                '${RomDropApiService.formatFingerprint(presented)}\n\n'
+                '${RomDropApiService.fingerprintBlock(presented)}\n\n'
                 'Continue only if they are the same.',
             'They match');
         if (!accepted) return;
@@ -341,13 +342,15 @@ class _RomDropConnectionScreenState
               focusNode: _screenFocus,
               autofocus: true,
               onKeyEvent: _handleKey,
-              child: Center(
+              child: Container(
+                alignment: Alignment.topCenter,
+                padding: const EdgeInsets.only(bottom: hudClearance),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 560),
                   // Not a lazy list: every field and button has to exist for
                   // the controller to move focus to it.
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 80),
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -442,8 +445,7 @@ class _RomDropConnectionScreenState
       if (connection.certificateFingerprint != null)
         (
           'Certificate SHA-256',
-          RomDropApiService.formatFingerprint(
-              connection.certificateFingerprint!)
+          '\n${RomDropApiService.fingerprintBlock(connection.certificateFingerprint!)}'
         ),
       if (capabilities != null)
         (
@@ -477,6 +479,9 @@ class _RomDropConnectionScreenState
   Widget _button(
       FocusNode focus, String label, Color color, VoidCallback onSelect) {
     return ConsoleFocusable(
+      // Keyed by its focus node: fields and buttons appear and disappear,
+      // and each must keep its own element.
+      key: ObjectKey(focus),
       focusNode: focus,
       focusScale: 1.0,
       onSelect: _busy ? null : onSelect,
@@ -498,6 +503,7 @@ class _RomDropConnectionScreenState
 
   Widget _textBox(_Field field) {
     return ConsoleFocusable(
+      key: ObjectKey(field.consoleFocus),
       focusNode: field.consoleFocus,
       focusScale: 1.0,
       onSelect: () => field.textFocus.requestFocus(),
@@ -506,7 +512,8 @@ class _RomDropConnectionScreenState
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
-            padding: const EdgeInsets.only(bottom: 6),
+            // Clear of the focus outline, which hugs this column.
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
             child: Text(field.label.toUpperCase(),
                 style: const TextStyle(
                     color: Colors.grey, fontSize: 11, letterSpacing: 1.2)),

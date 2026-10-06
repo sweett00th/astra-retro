@@ -156,15 +156,30 @@ class SystemVersionScreen extends ConsumerStatefulWidget {
       _SystemVersionScreenState();
 }
 
-class _SystemVersionScreenState extends ConsumerState<SystemVersionScreen> {
+class _SystemVersionScreenState extends ConsumerState<SystemVersionScreen>
+    with WidgetsBindingObserver {
   RomDropController? _controller;
   final Map<String, LocalFileState> _local = {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Files can be moved or deleted in another app while this one is in the
+  /// background; look again on the way back.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshLocal();
+  }
 
   SystemAsset get _asset => widget.asset;
   SystemAssetVersion get _version => widget.version;
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _detach();
     super.dispose();
   }
@@ -260,7 +275,7 @@ class _SystemVersionScreenState extends ConsumerState<SystemVersionScreen> {
             'Folder access was lost',
             'R-Shop can no longer write to "${folder.name}". That happens when the folder is moved or deleted, '
                 'or access is withdrawn in Android\'s settings. Nothing was downloaded.',
-            'Choose folder again');
+            'Choose folder');
         if (!again) return false;
         folder = await _pickFolder(initialUri: folder.uri);
         if (folder == null) return false;
@@ -367,7 +382,7 @@ class _SystemVersionScreenState extends ConsumerState<SystemVersionScreen> {
       return SystemRow(
         title: file.relativePath,
         subtitle:
-            '$size · Was saved to ${record.folderName}, but is no longer there\nSelect to download again',
+            '$size · The copy saved to ${record.folderName} is gone or has changed\nSelect to download again',
         leading: const Icon(Icons.help_outline_rounded, color: Colors.amber),
         onSelect: () => _download(file),
       );
