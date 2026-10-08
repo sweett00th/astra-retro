@@ -85,6 +85,8 @@ jobs:
           test/app_update_service_test.dart
           test/app_update_controller_test.dart
           test/widgets/app_update_screen_test.dart
+      - name: Test that one Back from Android counts once
+        run: flutter test --no-pub test/system_back_guard_test.dart
       - name: Build Astra APK
         # The run number becomes the Android version code, so a later build
         # always installs over an earlier one and the in-app updater can tell
