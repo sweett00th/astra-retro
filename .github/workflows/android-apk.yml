@@ -87,6 +87,12 @@ jobs:
           test/widgets/app_update_screen_test.dart
       - name: Test that one Back from Android counts once
         run: flutter test --no-pub test/system_back_guard_test.dart
+      - name: Test game sizes in the library (folder scan, labels, storage summary)
+        run: >-
+          flutter test --no-pub
+          test/installed_sizes_test.dart
+          test/library_sizes_test.dart
+          test/widgets/library_storage_summary_test.dart
       - name: Build Astra APK
         # The run number becomes the Android version code, so a later build
         # always installs over an earlier one and the in-app updater can tell

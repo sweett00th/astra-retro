@@ -1,7 +1,8 @@
 # Library and emulators
 
-The app opens on the Library. **B** goes back to the console list (settings,
-sync and the RetroArr scan live in its **+** menu).
+The app opens on the Library. **B** asks before leaving the app. The **+**
+menu has *Platforms* (the console list) and the same sync, RetroArr scan,
+System Files and Settings entries the console list has.
 
 ## Layout
 
@@ -22,6 +23,25 @@ sync and the RetroArr scan live in its **+** menu).
 - Search (**Y**) and shelves show one plain grid.
 - **L / R** change the tile size. Without a saved size, a row shows as many
   whole covers as the screen comfortably holds, plus a slice of the next one.
+
+## Sizes and storage
+
+- **On a tile** — what the game takes on the device, measured from its files:
+  a folder game counts everything in its folder, a disc game the track files
+  its `.cue` or `.gdi` sheet names. The mark beside the number brightens with
+  the size. A game that is only on a source shows the size the source lists,
+  with a download arrow. RomM lists sizes; RetroArr's game list does not, so
+  those tiles carry no size until the game is installed.
+- **Beside a platform's name** — what the installed games listed under it
+  take together, so it follows the tab and the search. Five bars fill up and
+  brighten in fixed steps: under 250 MB, up to 1 GB, 4 GB, 16 GB, and above.
+- **Beside the title** — the storage the ROM folders are on, as one bar:
+  installed games, everything else in use, and free space, each with its
+  amount. Narrow screens drop *Other* first, then the bar.
+
+The ROM folders are measured in the background when the Library opens and
+again after a download, an uninstall or a change in a ROM folder, so sizes
+appear a moment after the tiles.
 
 ## Uninstalling several games
 

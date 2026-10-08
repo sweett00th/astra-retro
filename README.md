@@ -15,8 +15,10 @@ after adding games on the server.
 
 The app opens on the **Library**: recently played games on top, then one row of
 games per platform, installed ones first (green outline) and the ones still on
-the server after them (blue outline). Installed games start in the emulator you
-pick per system or per game. See [Library and emulators](docs/library.md).
+the server after them (blue outline). Tiles and platform labels show how much
+space installed games take, and the title row how full the storage is.
+Installed games start in the emulator you pick per system or per game. See
+[Library and emulators](docs/library.md).
 
 **System Files** on the home screen lists the BIOS, firmware and key files you
 keep on your own [RomDrop](https://github.com/sweett00th/romdrop) server and
