@@ -25,6 +25,7 @@ class SystemDetailView extends ConsumerWidget {
 
     final system = state.selectedSystem;
     final sourceCount = sub.providers.length;
+    final packFolders = sub.packFolders ?? system?.packFolderGames ?? false;
 
     return SettingsListView(
       firstFocusNode: firstFocusNode,
@@ -61,6 +62,14 @@ class SystemDetailView extends ConsumerWidget {
             value: sub.autoExtract,
             onChanged: () =>
                 controller.setAutoExtract(!sub.autoExtract),
+          ),
+          SettingsEntry.toggle(
+            title: l.systemDetail_packFolders,
+            subtitle: packFolders
+                ? l.systemDetail_packFoldersEnabled
+                : l.systemDetail_packFoldersDisabled,
+            value: packFolders,
+            onChanged: () => controller.setPackFolders(!packFolders),
           ),
           SettingsEntry.toggle(
             title: l.systemDetail_autoSyncOnLaunch,

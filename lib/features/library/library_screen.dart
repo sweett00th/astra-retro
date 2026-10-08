@@ -980,6 +980,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           targetFolder: targetFolder,
           isLocalOnly: isLocalOnly,
           autoExtract: systemConfig?.autoExtract ?? false,
+          packFolders: systemConfig?.packsFolderGames ?? false,
         ),
       ),
     );

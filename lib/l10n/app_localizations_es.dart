@@ -686,6 +686,17 @@ class LEs extends L {
       'Las ROMs se quedan comprimidas';
 
   @override
+  String get systemDetail_packFolders => 'Empaquetar juegos de carpeta en ZIP';
+
+  @override
+  String get systemDetail_packFoldersEnabled =>
+      'Los juegos guardados como carpeta se guardan en un ZIP para que el emulador los instale';
+
+  @override
+  String get systemDetail_packFoldersDisabled =>
+      'Los juegos guardados como carpeta se mantienen como carpeta';
+
+  @override
   String get systemDetail_autoSyncOnLaunch => 'Auto-sync al iniciar';
 
   @override

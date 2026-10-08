@@ -196,7 +196,7 @@ class DownloadQueueManager extends ChangeNotifier {
   }
 
   String addToQueue(GameItem game, SystemModel system, String targetFolder,
-      {bool autoExtract = false}) {
+      {bool autoExtract = false, bool packFolders = false}) {
     final id = _generateId(game, system);
 
     final existing = _state.getDownloadById(id);
@@ -224,6 +224,7 @@ class DownloadQueueManager extends ChangeNotifier {
       system: system,
       targetFolder: targetFolder,
       autoExtract: autoExtract,
+      packFolders: packFolders,
     );
 
     // Cancel any pending retry timer for this item
@@ -413,6 +414,7 @@ class DownloadQueueManager extends ChangeNotifier {
       item.system,
       existingTempFilePath: item.tempFilePath,
       autoExtract: item.autoExtract,
+      packFolders: item.packFolders,
     )
         .listen(
       (progress) {

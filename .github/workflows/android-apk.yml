@@ -71,6 +71,12 @@ jobs:
           test/widgets/romdrop_connection_screen_test.dart
           test/widgets/home_system_files_tile_test.dart
           test/widgets/settings_widgets_test.dart
+      - name: Test folder games saved as one .zip
+        run: >-
+          flutter test --no-pub
+          test/folder_packer_test.dart
+          test/pack_folder_games_test.dart
+          test/download_pack_folder_test.dart
       - name: Build Astra APK
         run: flutter build apk --debug --no-pub --target-platform android-arm64
       - name: Verify project signing key

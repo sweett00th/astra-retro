@@ -13,6 +13,7 @@ import '../utils/friendly_error.dart';
 import '../utils/network_constants.dart';
 import 'disk_space_service.dart';
 import 'download_handle.dart';
+import 'folder_packer.dart';
 import 'native_smb_service.dart';
 import 'provider_factory.dart';
 import 'rom_manager.dart';
@@ -85,6 +86,7 @@ class DownloadService {
   StreamController<DownloadProgress>? _progressController;
   Future<void> Function()? _activeConnectionCleanup;
   String? _activeSmbDownloadId;
+  final FolderPacker _packer = FolderPacker();
 
   static const int _progressIntervalMs = 500;
   static const int _initialDelayMs = 1000;
@@ -149,6 +151,7 @@ class DownloadService {
 
   Future<void> cancelDownload({bool preserveTempFile = false}) async {
     _isCancelled = true;
+    _packer.cancel();
     _downloadSubscription?.cancel();
     _downloadSubscription = null;
     _zipProgressSubscription?.cancel();
@@ -214,6 +217,7 @@ class DownloadService {
     SystemModel system, {
     String? existingTempFilePath,
     bool autoExtract = false,
+    bool packFolders = false,
   }) {
     // Cancel any in-flight download before starting a new one
     final oldController = _progressController;
@@ -232,7 +236,8 @@ class DownloadService {
 
     _startDownload(game, targetFolder, system,
         existingTempFilePath: existingTempFilePath,
-        autoExtract: autoExtract)
+        autoExtract: autoExtract,
+        packFolders: packFolders)
       .catchError((e) {
         if (!controller.isClosed) {
           controller.addError(e);
@@ -249,6 +254,7 @@ class DownloadService {
     SystemModel system, {
     String? existingTempFilePath,
     bool autoExtract = false,
+    bool packFolders = false,
   }) async {
     if (_isDownloadInProgress) {
       _progressController?.add(DownloadProgress(
@@ -322,17 +328,20 @@ class DownloadService {
         case HttpDownloadHandle():
           await _downloadHttp(handle, tempFile);
         case HttpFolderDownloadHandle():
-          await _downloadHttpFolder(handle, game, targetFolder);
+          await _downloadHttpFolder(handle, game, targetFolder,
+              packFolders: packFolders);
           return; // folder download handles its own post-processing
         case NativeSmbDownloadHandle():
           await _downloadNativeSmb(handle, tempFile);
         case FtpDownloadHandle():
           await _downloadFtp(handle, tempFile);
         case NativeSmbFolderDownloadHandle():
-          await _downloadNativeSmbFolder(handle, game, targetFolder);
+          await _downloadNativeSmbFolder(handle, game, targetFolder,
+              packFolders: packFolders);
           return; // folder download handles its own post-processing
         case FtpFolderDownloadHandle():
-          await _downloadFtpFolder(handle, game, targetFolder);
+          await _downloadFtpFolder(handle, game, targetFolder,
+              packFolders: packFolders);
           return; // folder download handles its own post-processing
       }
 
@@ -389,8 +398,9 @@ class DownloadService {
   Future<void> _downloadHttpFolder(
     HttpFolderDownloadHandle handle,
     GameItem game,
-    String targetFolder,
-  ) async {
+    String targetFolder, {
+    bool packFolders = false,
+  }) async {
     if (handle.files.isEmpty) {
       _emitError('The server has no files for this game');
       return;
@@ -436,15 +446,22 @@ class DownloadService {
     if (_progressController?.isClosed == false) {
       _progressController?.add(DownloadProgress(status: DownloadStatus.moving, progress: 1.0));
     }
-    final installRoot = handle.subfolder == null
-        ? targetFolder
-        : RomManager.safePath(targetFolder, handle.subfolder!);
-    for (var i = 0; i < handle.files.length; i++) {
-      if (_isCancelled) { _emitCancelled(); return; }
-      final source = File(p.joinAll([folderTempDir.path, ...relativePaths[i]]));
-      final target = p.joinAll([installRoot, ...relativePaths[i]]);
-      await Directory(p.dirname(target)).create(recursive: true);
-      await moveFile(source, target);
+    if (packFolders && handle.subfolder != null) {
+      if (!await _installPacked(folderTempDir, targetFolder, handle.subfolder!)) {
+        _emitCancelled();
+        return;
+      }
+    } else {
+      final installRoot = handle.subfolder == null
+          ? targetFolder
+          : RomManager.safePath(targetFolder, handle.subfolder!);
+      for (var i = 0; i < handle.files.length; i++) {
+        if (_isCancelled) { _emitCancelled(); return; }
+        final source = File(p.joinAll([folderTempDir.path, ...relativePaths[i]]));
+        final target = p.joinAll([installRoot, ...relativePaths[i]]);
+        await Directory(p.dirname(target)).create(recursive: true);
+        await moveFile(source, target);
+      }
     }
 
     _folderTempDir = null;
@@ -456,6 +473,48 @@ class DownloadService {
     if (_progressController?.isClosed == false) {
       _progressController?.add(DownloadProgress(status: DownloadStatus.completed, progress: 1.0));
       _progressController?.close();
+    }
+  }
+
+  /// Installs a finished folder download as `targetFolder/<name>.zip` rather
+  /// than as a loose folder, for emulators that install from an archive.
+  /// Returns false when the download was cancelled meanwhile.
+  Future<bool> _installPacked(
+      Directory source, String targetFolder, String name) async {
+    final zipPath =
+        RomManager.safePath(targetFolder, RomManager.packedFilename(name));
+    // Written under another name first, so a half-written archive is never
+    // taken for an installed game.
+    final partial = File('$zipPath.part');
+    await Directory(targetFolder).create(recursive: true);
+    try {
+      await _packer.pack(
+          sourceDir: source.path,
+          zipPath: partial.path,
+          rootName: p.basename(name));
+      if (_isCancelled) throw const FolderPackCancelled();
+      final existing = File(zipPath);
+      if (await existing.exists()) await existing.delete();
+      await partial.rename(zipPath);
+      return true;
+    } on FolderPackCancelled {
+      await _deletePartialArchive(partial);
+      return false;
+    } catch (_) {
+      await _deletePartialArchive(partial);
+      rethrow;
+    }
+  }
+
+  Future<void> _deletePartialArchive(File file) async {
+    // A packer that was just stopped can hold the file a moment longer.
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        if (await file.exists()) await file.delete();
+        return;
+      } on FileSystemException {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
     }
   }
 
@@ -832,8 +891,9 @@ class DownloadService {
   Future<void> _downloadNativeSmbFolder(
     NativeSmbFolderDownloadHandle handle,
     GameItem game,
-    String targetFolder,
-  ) async {
+    String targetFolder, {
+    bool packFolders = false,
+  }) async {
     // List files in the remote folder
     final entries = await _smbService.listFiles(
       host: handle.host,
@@ -937,15 +997,22 @@ class DownloadService {
         ));
       }
 
-      final targetDir =
-          Directory(RomManager.safePath(targetFolder, game.filename));
-      await targetDir.create(recursive: true);
+      if (packFolders) {
+        if (!await _installPacked(folderTempDir, targetFolder, game.filename)) {
+          _emitCancelled();
+          return;
+        }
+      } else {
+        final targetDir =
+            Directory(RomManager.safePath(targetFolder, game.filename));
+        await targetDir.create(recursive: true);
 
-      for (final tempFile in folderTempDir.listSync().whereType<File>()) {
-        if (_isCancelled) { _emitCancelled(); return; }
-        final targetPath =
-            RomManager.safePath(targetDir.path, p.basename(tempFile.path));
-        await moveFile(tempFile, targetPath);
+        for (final tempFile in folderTempDir.listSync().whereType<File>()) {
+          if (_isCancelled) { _emitCancelled(); return; }
+          final targetPath =
+              RomManager.safePath(targetDir.path, p.basename(tempFile.path));
+          await moveFile(tempFile, targetPath);
+        }
       }
 
       if (_progressController?.isClosed == false) {
@@ -971,8 +1038,9 @@ class DownloadService {
   Future<void> _downloadFtpFolder(
     FtpFolderDownloadHandle handle,
     GameItem game,
-    String targetFolder,
-  ) async {
+    String targetFolder, {
+    bool packFolders = false,
+  }) async {
     _activeConnectionCleanup = () async {
       try { await handle.disconnect?.call(); } catch (e) {
         debugPrint('DownloadService: FTP folder disconnect: $e');
@@ -1042,15 +1110,22 @@ class DownloadService {
           ));
         }
 
-        final targetDir =
-            Directory(RomManager.safePath(targetFolder, game.filename));
-        await targetDir.create(recursive: true);
+        if (packFolders) {
+          if (!await _installPacked(folderTempDir, targetFolder, game.filename)) {
+            _emitCancelled();
+            return;
+          }
+        } else {
+          final targetDir =
+              Directory(RomManager.safePath(targetFolder, game.filename));
+          await targetDir.create(recursive: true);
 
-        for (final tempFile in folderTempDir.listSync().whereType<File>()) {
-          if (_isCancelled) { _emitCancelled(); return; }
-          final targetPath =
-              RomManager.safePath(targetDir.path, p.basename(tempFile.path));
-          await moveFile(tempFile, targetPath);
+          for (final tempFile in folderTempDir.listSync().whereType<File>()) {
+            if (_isCancelled) { _emitCancelled(); return; }
+            final targetPath =
+                RomManager.safePath(targetDir.path, p.basename(tempFile.path));
+            await moveFile(tempFile, targetPath);
+          }
         }
 
         if (_progressController?.isClosed == false) {

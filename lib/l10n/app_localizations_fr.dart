@@ -688,6 +688,18 @@ class LFr extends L {
   String get systemDetail_autoExtractDisabled => 'Les ROMs restent zippées';
 
   @override
+  String get systemDetail_packFolders =>
+      'Empaqueter les jeux en dossier en ZIP';
+
+  @override
+  String get systemDetail_packFoldersEnabled =>
+      'Les jeux stockés en dossier sont enregistrés dans un ZIP que l\'émulateur installe';
+
+  @override
+  String get systemDetail_packFoldersDisabled =>
+      'Les jeux stockés en dossier restent des dossiers';
+
+  @override
   String get systemDetail_autoSyncOnLaunch => 'Auto-sync au lancement';
 
   @override

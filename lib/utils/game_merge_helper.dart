@@ -22,6 +22,8 @@ class GameMergeHelper {
       if (targetName != game.filename) {
         remoteTargetNames.add(targetName);
       }
+      // A folder-based game may have been saved as one packed archive.
+      remoteTargetNames.add(RomManager.packedFilename(game.filename));
       // Multi-file archives extract to a folder with the stripped archive name
       if (system.multiFileExtensions != null &&
           system.multiFileExtensions!.isNotEmpty) {

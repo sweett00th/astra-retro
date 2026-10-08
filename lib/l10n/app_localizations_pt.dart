@@ -688,6 +688,17 @@ class LPt extends L {
       'ROMs ficam zipadas após download';
 
   @override
+  String get systemDetail_packFolders => 'Compactar jogos de pasta em ZIP';
+
+  @override
+  String get systemDetail_packFoldersEnabled =>
+      'Jogos guardados como pasta são salvos em um ZIP para o emulador instalar';
+
+  @override
+  String get systemDetail_packFoldersDisabled =>
+      'Jogos guardados como pasta continuam como pasta';
+
+  @override
   String get systemDetail_autoSyncOnLaunch => 'Auto-Sinc. ao Iniciar';
 
   @override

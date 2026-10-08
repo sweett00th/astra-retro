@@ -673,6 +673,16 @@ class LJa extends L {
   String get systemDetail_autoExtractDisabled => 'ROMはZIPのまま保存されます';
 
   @override
+  String get systemDetail_packFolders => 'フォルダのゲームをZIPにまとめる';
+
+  @override
+  String get systemDetail_packFoldersEnabled =>
+      'フォルダ形式のゲームは、エミュレーターがインストールできる1つのZIPとして保存されます';
+
+  @override
+  String get systemDetail_packFoldersDisabled => 'フォルダ形式のゲームはフォルダのまま保存されます';
+
+  @override
   String get systemDetail_autoSyncOnLaunch => '起動時自動同期';
 
   @override

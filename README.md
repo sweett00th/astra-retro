@@ -23,6 +23,12 @@ keep on your own [RomDrop](https://github.com/sweett00th/romdrop) server and
 saves them into a folder you choose on the tablet. They are not games and are
 not launched. See [System Files](docs/system-files.md).
 
+Some emulators install a game from an archive and cannot use a loose folder
+(Vita3K is one). For those systems a game the server keeps as a folder is saved
+as one `.zip` in the ROM folder, ready for the emulator's own install option.
+It is on for PlayStation Vita; switch it per system under **Settings → the
+system → Pack Folder Games as ZIP**.
+
 If the tablet is connected to your computer with USB debugging enabled, install
 with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a
 project-only development signing key (a repository Actions secret in CI, and

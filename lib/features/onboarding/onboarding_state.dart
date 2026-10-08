@@ -52,12 +52,16 @@ class ConsoleSetupState {
   final String? targetFolder;
   final bool autoExtract;
   final bool autoSync;
+
+  /// `null` until the user flips the switch: the system's default applies.
+  final bool? packFolders;
   final List<ProviderConfig> providers;
 
   const ConsoleSetupState({
     this.targetFolder,
     this.autoExtract = false,
     this.autoSync = true,
+    this.packFolders,
     this.providers = const [],
   });
 
@@ -65,12 +69,14 @@ class ConsoleSetupState {
     String? targetFolder,
     bool? autoExtract,
     bool? autoSync,
+    bool? packFolders,
     List<ProviderConfig>? providers,
   }) {
     return ConsoleSetupState(
       targetFolder: targetFolder ?? this.targetFolder,
       autoExtract: autoExtract ?? this.autoExtract,
       autoSync: autoSync ?? this.autoSync,
+      packFolders: packFolders ?? this.packFolders,
       providers: providers ?? this.providers,
     );
   }

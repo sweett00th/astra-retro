@@ -41,6 +41,21 @@ class RomManager {
     return filename;
   }
 
+  /// Name of the archive a folder-based game is saved as when its system
+  /// packs folder games.
+  static String packedFilename(String folderName) =>
+      '${p.basename(folderName)}.zip';
+
+  /// The archive a folder-based [game] was packed into, if it is in
+  /// [targetFolder]. A game that is an archive itself is never packed.
+  static Future<File?> _packedArchive(GameItem game, String targetFolder) async {
+    final name = p.basename(game.filename);
+    final lower = name.toLowerCase();
+    if (SystemModel.archiveExtensions.any(lower.endsWith)) return null;
+    final file = File(safePath(targetFolder, packedFilename(name)));
+    return await file.exists() ? file : null;
+  }
+
   static String? extractGameName(String filename) {
     var name = filename;
 
@@ -92,6 +107,9 @@ class RomManager {
         if (await File(archivePath).exists()) return archivePath;
       }
 
+      final packed = await _packedArchive(game, targetFolder);
+      if (packed != null) return packed.path;
+
       final gameName = extractGameName(game.filename);
       if (gameName != null) {
         final subfolderPath = safePath(targetFolder, gameName);
@@ -135,6 +153,11 @@ class RomManager {
         }
       }
 
+      final packed = await _packedArchive(game, targetFolder);
+      if (packed != null) {
+        return SharePathResult(packed.path, isDirectory: false);
+      }
+
       final gameName = extractGameName(game.filename);
       if (gameName != null) {
         final subfolderPath = safePath(targetFolder, gameName);
@@ -174,6 +197,8 @@ class RomManager {
         final archivePath = safePath(targetFolder, basename);
         if (await File(archivePath).exists()) return true;
       }
+
+      if (await _packedArchive(game, targetFolder) != null) return true;
 
       final gameName = extractGameName(game.filename);
       if (gameName != null) {
@@ -243,6 +268,10 @@ class RomManager {
           return;
         }
       }
+
+      // A folder-based game saved as one archive; a loose copy of the same
+      // game, if there is one too, goes with it below.
+      await (await _packedArchive(game, targetFolder))?.delete();
 
       final gameName = extractGameName(game.filename);
       if (gameName != null) {

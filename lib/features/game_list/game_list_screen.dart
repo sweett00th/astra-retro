@@ -518,6 +518,7 @@ class _GameListScreenState extends ConsumerState<GameListScreen>
           targetFolder: widget.targetFolder,
           isLocalOnly: isLocalOnly,
           autoExtract: _systemConfig?.autoExtract ?? false,
+          packFolders: _systemConfig?.packsFolderGames ?? false,
         ),
       ),
     );

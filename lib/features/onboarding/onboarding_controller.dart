@@ -185,6 +185,7 @@ class OnboardingController extends StateNotifier<OnboardingState> {
         targetFolder: existing.targetFolder,
         autoExtract: existing.autoExtract,
         autoSync: existing.autoSync,
+        packFolders: existing.packFolders,
         providers: List.of(existing.providers),
       );
     } else {
@@ -227,6 +228,12 @@ class OnboardingController extends StateNotifier<OnboardingState> {
     final sub = state.consoleSubState;
     if (sub == null) return;
     state = state.copyWith(consoleSubState: sub.copyWith(autoSync: value));
+  }
+
+  void setPackFolders(bool value) {
+    final sub = state.consoleSubState;
+    if (sub == null) return;
+    state = state.copyWith(consoleSubState: sub.copyWith(packFolders: value));
   }
 
   // ---------------------------------------------------------------------------
@@ -634,6 +641,7 @@ class OnboardingController extends StateNotifier<OnboardingState> {
       providers: sub.providers,
       autoExtract: sub.autoExtract,
       autoSync: sub.autoSync,
+      packFolders: sub.packFolders,
     );
 
     final updated = Map<String, SystemConfig>.from(state.configuredSystems);

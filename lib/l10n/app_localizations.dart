@@ -1353,6 +1353,24 @@ abstract class L {
   /// **'ROMs stay zipped after download'**
   String get systemDetail_autoExtractDisabled;
 
+  /// No description provided for @systemDetail_packFolders.
+  ///
+  /// In en, this message translates to:
+  /// **'Pack Folder Games as ZIP'**
+  String get systemDetail_packFolders;
+
+  /// No description provided for @systemDetail_packFoldersEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Games stored as a folder are saved as one ZIP for the emulator to install'**
+  String get systemDetail_packFoldersEnabled;
+
+  /// No description provided for @systemDetail_packFoldersDisabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Games stored as a folder are saved as a folder'**
+  String get systemDetail_packFoldersDisabled;
+
   /// No description provided for @systemDetail_autoSyncOnLaunch.
   ///
   /// In en, this message translates to:

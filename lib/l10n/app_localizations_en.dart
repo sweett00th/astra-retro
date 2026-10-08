@@ -685,6 +685,17 @@ class LEn extends L {
       'ROMs stay zipped after download';
 
   @override
+  String get systemDetail_packFolders => 'Pack Folder Games as ZIP';
+
+  @override
+  String get systemDetail_packFoldersEnabled =>
+      'Games stored as a folder are saved as one ZIP for the emulator to install';
+
+  @override
+  String get systemDetail_packFoldersDisabled =>
+      'Games stored as a folder are saved as a folder';
+
+  @override
   String get systemDetail_autoSyncOnLaunch => 'Auto-Sync on Launch';
 
   @override

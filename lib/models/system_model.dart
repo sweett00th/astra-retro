@@ -13,6 +13,11 @@ class SystemModel {
   final List<String>? multiFileExtensions;
   final int? raConsoleId;
 
+  /// Whether a game that is stored as a folder is saved as one `.zip` by
+  /// default: this system's emulator installs games from an archive and
+  /// cannot use a loose folder.
+  final bool packFolderGames;
+
   const SystemModel({
     required this.id,
     required this.name,
@@ -25,6 +30,7 @@ class SystemModel {
     this.accentColor = Colors.redAccent,
     this.multiFileExtensions,
     this.raConsoleId,
+    this.packFolderGames = false,
   });
 
   /// Whether this system has RetroAchievements support.
@@ -303,6 +309,8 @@ class SystemModel {
       isZipped: false,
       libretroId: 'Sony_-_PlayStation_Vita',
       romExtensions: ['.vpk'],
+      // Vita3K installs from .zip/.vpk; it has no use for a loose folder.
+      packFolderGames: true,
       iconName: 'playstation_vita.svg',
       accentColor: Color(0xFF1E40AF),
     ),

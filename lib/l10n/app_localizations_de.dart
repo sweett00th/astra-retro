@@ -687,6 +687,17 @@ class LDe extends L {
       'ROMs bleiben nach Download gezippt';
 
   @override
+  String get systemDetail_packFolders => 'Ordner-Spiele als ZIP packen';
+
+  @override
+  String get systemDetail_packFoldersEnabled =>
+      'Als Ordner gespeicherte Spiele werden als eine ZIP gespeichert, die der Emulator installiert';
+
+  @override
+  String get systemDetail_packFoldersDisabled =>
+      'Als Ordner gespeicherte Spiele bleiben Ordner';
+
+  @override
   String get systemDetail_autoSyncOnLaunch => 'Auto-Sync beim Start';
 
   @override

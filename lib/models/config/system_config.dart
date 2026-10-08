@@ -1,3 +1,4 @@
+import '../system_model.dart';
 import 'provider_config.dart';
 import 'source.dart';
 
@@ -15,6 +16,11 @@ class SystemConfig {
 
   final bool autoExtract;
   final bool autoSync;
+
+  /// Whether a game stored as a folder is saved as one `.zip`. `null` follows
+  /// the system's default ([SystemModel.packFolderGames]); [packsFolderGames]
+  /// is the value in effect.
+  final bool? packFolders;
 
   /// Optional explicit allow-list of source ids that contribute to this
   /// system. `null` means "use every auto-mapped source plus everything in
@@ -34,9 +40,16 @@ class SystemConfig {
     required this.providers,
     this.autoExtract = false,
     this.autoSync = true,
+    this.packFolders,
     this.enabledSourceIds,
     this.manualMappings = const [],
   });
+
+  /// Whether folder-based games of this system are saved as one `.zip`: the
+  /// user's choice, or the system's default while they have not made one.
+  bool get packsFolderGames =>
+      packFolders ??
+      SystemModel.supportedSystems.any((s) => s.id == id && s.packFolderGames);
 
   factory SystemConfig.fromJson(Map<String, dynamic> json) {
     final providerList = (json['providers'] as List<dynamic>? ?? const [])
@@ -61,6 +74,7 @@ class SystemConfig {
       providers: providerList,
       autoExtract: json['auto_extract'] as bool? ?? false,
       autoSync: json['auto_sync'] as bool? ?? true,
+      packFolders: json['pack_folders'] as bool?,
       enabledSourceIds: allowList,
       manualMappings: mappings,
     );
@@ -74,6 +88,7 @@ class SystemConfig {
       'providers': providers.map((p) => p.toJson()).toList(),
       'auto_extract': autoExtract,
       'auto_sync': autoSync,
+      if (packFolders != null) 'pack_folders': packFolders,
       if (enabledSourceIds != null) 'enabled_source_ids': enabledSourceIds,
       if (manualMappings.isNotEmpty)
         'manual_mappings': manualMappings.map((m) => m.toJson()).toList(),
@@ -89,6 +104,7 @@ class SystemConfig {
       'providers': providers.map((p) => p.toJsonWithoutAuth()).toList(),
       'auto_extract': autoExtract,
       'auto_sync': autoSync,
+      if (packFolders != null) 'pack_folders': packFolders,
       if (enabledSourceIds != null) 'enabled_source_ids': enabledSourceIds,
       if (manualMappings.isNotEmpty)
         'manual_mappings': manualMappings.map((m) => m.toJson()).toList(),
@@ -102,6 +118,7 @@ class SystemConfig {
     List<ProviderConfig>? providers,
     bool? autoExtract,
     bool? autoSync,
+    bool? packFolders,
     List<String>? enabledSourceIds,
     bool clearEnabledSourceIds = false,
     List<SystemSourceMapping>? manualMappings,
@@ -113,6 +130,7 @@ class SystemConfig {
       providers: providers ?? this.providers,
       autoExtract: autoExtract ?? this.autoExtract,
       autoSync: autoSync ?? this.autoSync,
+      packFolders: packFolders ?? this.packFolders,
       enabledSourceIds: clearEnabledSourceIds
           ? null
           : (enabledSourceIds ?? this.enabledSourceIds),
