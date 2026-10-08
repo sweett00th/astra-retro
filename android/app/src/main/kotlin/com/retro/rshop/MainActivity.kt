@@ -72,6 +72,10 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.retro.rshop/launcher")
             .setMethodCallHandler(EmulatorLauncher(applicationContext))
 
+        // Installs a newer build the app downloaded from its own releases.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.retro.rshop/app_update")
+            .setMethodCallHandler(AppUpdater(this))
+
         // System files are saved into folders the user grants (see SafStorage).
         val saf = SafStorage(this).also { safStorage = it }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.retro.rshop/saf")

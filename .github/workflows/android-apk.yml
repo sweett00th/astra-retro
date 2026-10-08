@@ -22,6 +22,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The release notes list the commits since the previous build's tag.
+          fetch-depth: 0
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -77,8 +79,19 @@ jobs:
           test/folder_packer_test.dart
           test/pack_folder_games_test.dart
           test/download_pack_folder_test.dart
+      - name: Test the in-app update (release lookup, verified download, screen)
+        run: >-
+          flutter test --no-pub
+          test/app_update_service_test.dart
+          test/app_update_controller_test.dart
+          test/widgets/app_update_screen_test.dart
       - name: Build Astra APK
-        run: flutter build apk --debug --no-pub --target-platform android-arm64
+        # The run number becomes the Android version code, so a later build
+        # always installs over an earlier one and the in-app updater can tell
+        # which of two builds is newer.
+        run: >-
+          flutter build apk --debug --no-pub --target-platform android-arm64
+          --build-number "$GITHUB_RUN_NUMBER"
       - name: Verify project signing key
         env:
           # Public certificate digest of the project development key.
@@ -108,15 +121,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           tag="m1-build-${GITHUB_RUN_NUMBER}"
-          cat > release-notes.md <<'NOTES'
-          Milestone 1 development APK for ARM64 Android tablets, including the REDMAGIC Astra.
-
-          Download `astra-retro-debug.apk` on the tablet, open it, and allow installation from your browser or file manager when Android prompts you.
-
-          RetroArr browsing is read-only. Enter your own server URL and API key in the app. Downloads and emulator launching are not implemented. Physical Astra and real-library verification are still pending.
-
-          This APK uses a consistent development signing key so subsequent builds can update the app without clearing its data.
-          NOTES
+          previous="$(git describe --tags --abbrev=0 --match 'm1-build-*' 2>/dev/null || true)"
+          {
+            echo "Development build ${GITHUB_RUN_NUMBER} for ARM64 Android tablets, including the REDMAGIC Astra."
+            echo
+            echo "To install: in the app, open Settings, About, App update. Or download astra-retro-debug.apk in a browser on the tablet and open it."
+            echo
+            echo "Every build is signed with the same development key, so it updates the app in place and keeps its settings and downloads."
+            echo
+            echo "Changes in this build:"
+            git log --no-merges --format='- %s' ${previous:+"${previous}..HEAD"} | head -n 40
+          } > release-notes.md
           gh release create "$tag" astra-retro-debug.apk astra-retro-debug.apk.sha256 \
-            --target "$GITHUB_SHA" --title "Milestone 1 development build ${GITHUB_RUN_NUMBER}" \
+            --target "$GITHUB_SHA" --title "Development build ${GITHUB_RUN_NUMBER}" \
             --notes-file release-notes.md --latest

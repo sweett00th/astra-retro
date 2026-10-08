@@ -364,6 +364,12 @@ void main() {
       await tester.pumpWidget(buildAboutTab());
       expect(find.byType(DeviceInfoCard), findsOneWidget);
     });
+
+    testWidgets('offers the app update', (tester) async {
+      await tester.pumpWidget(buildAboutTab());
+      expect(find.text('App update'), findsOneWidget);
+      expect(find.text('Install the newest build of this app'), findsOneWidget);
+    });
   });
 
   // ─── DeviceInfoCard ─────────────────────────────────────

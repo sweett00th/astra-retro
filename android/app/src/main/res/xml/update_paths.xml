@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The one place UpdateFileProvider shares from: an update of this app that
+     the app downloaded into its own cache (see AppUpdater.kt). -->
+<paths>
+    <cache-path name="app_update" path="app_update/" />
+</paths>

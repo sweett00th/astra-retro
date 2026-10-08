@@ -29,12 +29,22 @@ as one `.zip` in the ROM folder, ready for the emulator's own install option.
 It is on for PlayStation Vita; switch it per system under **Settings → the
 system → Pack Folder Games as ZIP**.
 
+**App update** under **Settings → About** installs the newest build from this
+repository's releases without a cable or a browser. It downloads the APK,
+checks it against the SHA-256 published with it and hands it to Android's
+installer, which asks you to confirm. The first time, Android also asks you to
+allow this app to install apps. Every push to `main` publishes a build, and its
+number is the Android version code, so the app can tell which build is newer.
+
 If the tablet is connected to your computer with USB debugging enabled, install
 with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a
 project-only development signing key (a repository Actions secret in CI, and
 `astra.debugKeystore` in the ignored `android/local.properties` on the desktop),
-so they can update each other. The first `m1-desktop-1` APK used a different
-key and cannot be updated in place.
+so they can update each other. A desktop build keeps the build number from
+`pubspec.yaml`, which is lower than any CI build: App update will offer the
+latest CI build over it, and putting it back over a CI build needs
+`adb install -r -d`. The first `m1-desktop-1` APK used a different key and
+cannot be updated in place.
 
 [Implementation and validation details](docs/retroarr-milestone-1.md)
 

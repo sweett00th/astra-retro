@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../core/widgets/console_focusable.dart';
 import '../../../providers/app_providers.dart';
+import '../../app_update/app_update_screen.dart';
 import '../models/settings_entry.dart';
 import 'device_info_card.dart';
 import 'settings_list_view.dart';
@@ -41,6 +42,13 @@ class _SettingsAboutTabState extends ConsumerState<SettingsAboutTab> {
               appVersion: widget.appVersion,
               focusNode: widget.firstAboutTabNode,
             ),
+          ),
+          SettingsEntry.nav(
+            icon: Icons.system_update_rounded,
+            title: 'App update',
+            subtitle: 'Install the newest build of this app',
+            onSelect: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const AppUpdateScreen())),
           ),
         ]),
         SettingsSection(l.settings_sectionLinks, [
