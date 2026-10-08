@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_actions.dart';
 import 'app_intents.dart';
+import 'system_back_guard.dart';
 
 class GlobalInputWrapper extends ConsumerStatefulWidget {
   final Widget child;
@@ -19,15 +20,20 @@ class GlobalInputWrapper extends ConsumerStatefulWidget {
 
 class _GlobalInputWrapperState extends ConsumerState<GlobalInputWrapper> {
   late final FocusNode _rootFocusNode;
+  final SystemBackGuard _backGuard = SystemBackGuard();
 
   @override
   void initState() {
     super.initState();
     _rootFocusNode = FocusNode(debugLabel: 'GlobalInputRoot');
+    // This widget is built around the app, so the guard is in place before
+    // the navigator starts answering Android's Back.
+    _backGuard.attach();
   }
 
   @override
   void dispose() {
+    _backGuard.detach();
     _rootFocusNode.dispose();
     super.dispose();
   }
