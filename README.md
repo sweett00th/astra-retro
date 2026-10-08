@@ -26,8 +26,10 @@ not launched. See [System Files](docs/system-files.md).
 Some emulators install a game from an archive and cannot use a loose folder
 (Vita3K is one). For those systems a game the server keeps as a folder is saved
 as one `.zip` in the ROM folder, ready for the emulator's own install option.
-It is on for PlayStation Vita; switch it per system under **Settings → the
-system → Pack Folder Games as ZIP**.
+It is on for PlayStation Vita; switch it per system under **Settings → Console
+Settings → the system → Pack Folder Games as ZIP**. Tried on a REDMAGIC Astra
+(Android 16) on 2026-10-08 with a 3.1 GB Vita game: the archive held every file
+of the folder. Installing it in Vita3K was not checked.
 
 **App update** under **Settings → About** installs the newest build from this
 repository's releases without a cable or a browser. It downloads the APK,
@@ -35,6 +37,9 @@ checks it against the SHA-256 published with it and hands it to Android's
 installer, which asks you to confirm. The first time, Android also asks you to
 allow this app to install apps. Every push to `main` publishes a build, and its
 number is the Android version code, so the app can tell which build is newer.
+Android closes the app when it installs the update; open it again afterwards.
+Walked on the same tablet on 2026-10-08: a desktop build updated itself to
+build 16 and kept its settings and library.
 
 If the tablet is connected to your computer with USB debugging enabled, install
 with `adb install -r astra-retro-debug.apk`. CI and desktop builds share a

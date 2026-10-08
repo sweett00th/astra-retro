@@ -7,7 +7,9 @@ import 'package:retro_eshop/services/app_update_service.dart';
 final sampleRelease = AppRelease(
   tag: 'm1-build-16',
   build: 16,
-  notes: 'Changes in this build:\n- Save folder games as one .zip',
+  notes: 'Development build 16 for ARM64 Android tablets.\n\n'
+      'To install: in the app, open Settings, About, App update.\n\n'
+      'Changes in this build:\n- Save folder games as one .zip',
   // Midday UTC: the same calendar day in every time zone the tests run in.
   publishedAt: DateTime.utc(2026, 10, 8, 12),
   apkUrl: Uri.parse(
@@ -30,6 +32,7 @@ class FakeUpdateService extends AppUpdateService {
   /// When set, a download waits here after reporting half-way.
   Completer<void>? gate;
   int downloads = 0;
+  int cleared = 0;
 
   /// Never written: the fake installer only records its path.
   final apk = File('synthetic-update.apk');
@@ -37,6 +40,9 @@ class FakeUpdateService extends AppUpdateService {
   @override
   Future<InstalledBuild> installed() async =>
       InstalledBuild('1.7.0', installedBuildNumber);
+
+  @override
+  Future<void> clearDownloads() async => cleared++;
 
   @override
   Future<AppRelease?> latest() async {

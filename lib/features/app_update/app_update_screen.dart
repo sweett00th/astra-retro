@@ -164,7 +164,7 @@ class _AppUpdateScreenState extends State<AppUpdateScreen>
           message: SystemMessage(
               Icons.download_done_rounded,
               '${release!.label} is downloaded and verified',
-              'Android asks you to confirm the update, then restarts the app. Settings and downloads are kept.'),
+              'Android asks you to confirm, installs the build and closes the app. Open it again afterwards; settings and downloads are kept.'),
           selectLabel: 'Choose',
           rows: [
             SystemRow(
@@ -194,17 +194,23 @@ class _AppUpdateScreenState extends State<AppUpdateScreen>
   }
 }
 
-/// What the release says about itself, as plain text.
+/// What changed in the release, as plain text. The lines a release puts
+/// above its list of changes tell a browser visitor how to install it.
 class _Notes extends StatelessWidget {
   const _Notes(this.notes);
   final String notes;
+
+  String get _changes {
+    final start = notes.indexOf('Changes in this build:');
+    return start < 0 ? notes : notes.substring(start);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Text(
-        notes,
+        _changes,
         maxLines: 16,
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),

@@ -39,6 +39,8 @@ void main() {
     expect(find.text('Download and install build 16'), findsOneWidget);
     expect(find.textContaining('published 8 Oct 2026'), findsOneWidget);
     expect(find.textContaining('Save folder games as one .zip'), findsOneWidget);
+    expect(find.textContaining('To install:'), findsNothing,
+        reason: 'only the changes are shown, not the browser instructions');
     expect(installer.installed, isEmpty, reason: 'nothing starts by itself');
   });
 
@@ -50,6 +52,8 @@ void main() {
     expect(service.downloads, 1);
     expect(installer.installed, [service.apk.path]);
     expect(find.text('build 16 is downloaded and verified'), findsOneWidget);
+    expect(find.textContaining('closes the app. Open it again afterwards'),
+        findsOneWidget);
 
     // The user dismissed Android's dialog: A opens it again.
     await press(tester, _a);

@@ -49,9 +49,13 @@ class AppUpdateController extends ChangeNotifier {
       installed = await _service.installed();
       final latest = await _service.latest();
       release = latest;
-      _set(latest != null && _service.isNewer(latest, installed!)
-          ? AppUpdateStage.available
-          : AppUpdateStage.upToDate);
+      if (latest != null && _service.isNewer(latest, installed!)) {
+        _set(AppUpdateStage.available);
+      } else {
+        _apk = null;
+        await _service.clearDownloads();
+        _set(AppUpdateStage.upToDate);
+      }
     } catch (e) {
       _fail(e);
     }

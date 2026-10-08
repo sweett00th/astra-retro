@@ -41,6 +41,14 @@ void main() {
       await controller.check();
       expect(controller.stage, AppUpdateStage.upToDate);
       expect(controller.release!.build, 16);
+      expect(service.cleared, 1,
+          reason: 'the APK of the running build is removed from the cache');
+    });
+
+    test('a pending update keeps its download', () async {
+      await controller.check();
+      expect(controller.stage, AppUpdateStage.available);
+      expect(service.cleared, 0);
     });
 
     test('no published build is up to date', () async {

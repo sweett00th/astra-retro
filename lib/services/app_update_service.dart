@@ -179,6 +179,18 @@ class AppUpdateService {
   bool _isReleaseFile(Uri url) =>
       url.toString().startsWith('$downloadBase/$repository/releases/download/');
 
+  /// Removes a downloaded update. Called once nothing is waiting to be
+  /// installed, so an APK is not left in the cache after its build is running.
+  Future<void> clearDownloads() async {
+    final folder =
+        Directory(p.join((await _cacheDirectory()).path, 'app_update'));
+    try {
+      if (await folder.exists()) await folder.delete(recursive: true);
+    } on FileSystemException {
+      // Left for the next download, which clears the folder first.
+    }
+  }
+
   /// Whether [release] is newer than the running build. A build without a
   /// number on either side cannot be compared and is offered.
   bool isNewer(AppRelease release, InstalledBuild installed) =>

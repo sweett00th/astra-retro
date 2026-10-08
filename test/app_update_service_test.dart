@@ -231,6 +231,16 @@ void main() {
       expect(Directory(p.join(tmp.path, 'app_update')).listSync(), hasLength(1));
     });
 
+    test('clearDownloads removes the APK once its build is installed',
+        () async {
+      final apk = await service.download((await service.latest())!);
+      expect(apk.existsSync(), isTrue);
+
+      await service.clearDownloads();
+      expect(Directory(p.join(tmp.path, 'app_update')).existsSync(), isFalse);
+      await service.clearDownloads(); // nothing there: not an error
+    });
+
     test('a cancelled download leaves nothing behind', () async {
       final release = (await service.latest())!;
       final cancel = CancelToken()..cancel();
