@@ -141,6 +141,19 @@ void main() {
       expect(p.basename(share.path), p.basename(packed.path));
     });
 
+    test('is one of the names the game can have on the device', () {
+      expect(RomManager.installedNames(_folderGame.filename, _vita),
+          [_folderGame.filename, p.basename(packed.path)]);
+      // An archive is there as itself or as what was extracted from it.
+      expect(RomManager.installedNames('Other Game.zip', _psx), [
+        'Other Game.zip',
+        'Other Game',
+        for (final ext in _psx.romExtensions) 'Other Game$ext',
+      ]);
+      expect(RomManager.installedNames('Other Game.zip', null),
+          ['Other Game.zip', 'Other Game']);
+    });
+
     test('is not listed a second time beside its catalog entry', () async {
       packed.writeAsBytesSync([0x50, 0x4b, 0x05, 0x06]);
       File(p.join(library.path, 'Homebrew.vpk')).writeAsBytesSync([1]);

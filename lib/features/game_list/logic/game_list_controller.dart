@@ -448,17 +448,9 @@ class GameListController extends ChangeNotifier {
 
   bool _isAnyVariantInSet(List<GameItem> variants, Set<String> filenames) {
     for (final variant in variants) {
-      final fn = variant.filename;
-      if (filenames.contains(fn)) return true;
-      // Check archive→extracted match
-      for (final ext in SystemModel.archiveExtensions) {
-        if (fn.toLowerCase().endsWith(ext)) {
-          final stripped = fn.substring(0, fn.length - ext.length);
-          if (filenames.contains(stripped)) return true;
-          for (final romExt in system.romExtensions) {
-            if (filenames.contains('$stripped$romExt')) return true;
-          }
-        }
+      if (RomManager.installedNames(variant.filename, system)
+          .any(filenames.contains)) {
+        return true;
       }
     }
     return false;

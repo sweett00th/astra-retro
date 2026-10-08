@@ -485,6 +485,16 @@ void main() {
       r.controller.dispose();
     });
 
+    test('folder game packed into one archive', () async {
+      final r = await createController(games: [
+        _game('Game [ID0001]', url: 'http://r/g'),
+      ]);
+      r.controller.applyInstalledFilenames({'Game [ID0001].zip'});
+      final group = GameItem.cleanDisplayName('Game [ID0001]');
+      expect(r.controller.state.installedCache[group], true);
+      r.controller.dispose();
+    });
+
     test('stripped archive name match (no rom extension)', () async {
       final r = await createController(games: [
         _game('Game.zip', url: 'http://r/g.zip'),

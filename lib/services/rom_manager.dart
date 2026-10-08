@@ -46,6 +46,24 @@ class RomManager {
   static String packedFilename(String folderName) =>
       '${p.basename(folderName)}.zip';
 
+  /// The names a game can go by in its system's ROM folder once it is on the
+  /// device: as it is listed, extracted from its archive (a ROM or a folder),
+  /// or, for a folder-based game, packed into one archive.
+  static List<String> installedNames(String filename, SystemModel? system) {
+    final lower = filename.toLowerCase();
+    for (final ext in SystemModel.archiveExtensions) {
+      if (!lower.endsWith(ext)) continue;
+      final stripped = filename.substring(0, filename.length - ext.length);
+      return [
+        filename,
+        stripped,
+        if (system != null)
+          for (final romExt in system.romExtensions) '$stripped$romExt',
+      ];
+    }
+    return [filename, packedFilename(filename)];
+  }
+
   /// The archive a folder-based [game] was packed into, if it is in
   /// [targetFolder]. A game that is an archive itself is never packed.
   static Future<File?> _packedArchive(GameItem game, String targetFolder) async {
