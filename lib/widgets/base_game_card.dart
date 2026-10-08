@@ -41,6 +41,16 @@ class BaseGameCard extends StatelessWidget {
   /// borrowed (read-only / shared) source.
   final bool sourceDotBorrowed;
 
+  /// The game's size ("3.1 GB"), shown as a small marker on the cover.
+  final String? sizeLabel;
+
+  /// Whether [sizeLabel] is what a download would bring in, rather than what
+  /// the game already takes on the device.
+  final bool sizeIsDownload;
+
+  /// Colour of the mark beside [sizeLabel] that tells how heavy the game is.
+  final Color? sizeColor;
+
   /// Optional glowing outline in this colour (the library uses it to show
   /// whether a game is on the device or only on a source). `null` keeps the
   /// plain hairline border.
@@ -92,6 +102,9 @@ class BaseGameCard extends StatelessWidget {
     this.sourceDotBorrowed = false,
     this.extraSourceDots,
     this.glowColor,
+    this.sizeLabel,
+    this.sizeIsDownload = false,
+    this.sizeColor,
     this.downloadStatus,
     this.downloadProgress = 0.0,
   });
@@ -165,8 +178,8 @@ class BaseGameCard extends StatelessWidget {
                       accentColor: accentColor,
                     ),
                   ),
-                // Top-left badges (system + installed)
-                if (systemLabel != null || isInstalled)
+                // Top-left badges (system + installed + size)
+                if (systemLabel != null || isInstalled || sizeLabel != null)
                   Positioned(
                     top: padding,
                     left: padding,
@@ -197,6 +210,16 @@ class BaseGameCard extends StatelessWidget {
                           if (systemLabel != null)
                             SizedBox(height: rs.isSmall ? 2.0 : 3.0),
                           _InstalledBadge(isSmall: rs.isSmall),
+                        ],
+                        if (sizeLabel != null) ...[
+                          if (systemLabel != null || isInstalled)
+                            SizedBox(height: rs.isSmall ? 2.0 : 3.0),
+                          _SizeBadge(
+                            label: sizeLabel!,
+                            isDownload: sizeIsDownload,
+                            markColor: sizeColor,
+                            isSmall: rs.isSmall,
+                          ),
                         ],
                       ],
                     ),
@@ -378,6 +401,66 @@ class BaseGameCard extends StatelessWidget {
     }
 
     return card;
+  }
+}
+
+/// The game's size in plain text on a dark chip, readable over any cover.
+/// A download arrow marks a size that is still on the server; a coloured
+/// mark tells how heavy a game on the device is.
+class _SizeBadge extends StatelessWidget {
+  final String label;
+  final bool isDownload;
+  final Color? markColor;
+  final bool isSmall;
+  const _SizeBadge({
+    required this.label,
+    required this.isDownload,
+    required this.markColor,
+    required this.isSmall,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fontSize = isSmall ? 6.5 : 8.0;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isSmall ? 4.0 : 5.0,
+        vertical: isSmall ? 1.5 : 2.0,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isDownload) ...[
+            Icon(Icons.arrow_downward_rounded,
+                size: fontSize + 1.5, color: Colors.white70),
+            const SizedBox(width: 2),
+          ] else if (markColor != null) ...[
+            Container(
+              width: 3,
+              height: fontSize,
+              decoration: BoxDecoration(
+                color: markColor,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

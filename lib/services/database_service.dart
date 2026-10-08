@@ -778,6 +778,21 @@ class DatabaseService {
     });
   }
 
+  /// The sizes the sources reported for their games, by the library's key
+  /// ("system/filename").
+  Future<Map<String, int>> getFileSizes() async {
+    final db = await database;
+    final rows = await db.query(
+      'game_metadata',
+      columns: ['system_slug', 'filename', 'file_size'],
+      where: 'file_size > 0',
+    );
+    return {
+      for (final row in rows)
+        '${row['system_slug']}/${row['filename']}': row['file_size'] as int,
+    };
+  }
+
   Future<GameMetadataInfo?> getGameMetadata(
       String filename, String systemSlug) async {
     final db = await database;

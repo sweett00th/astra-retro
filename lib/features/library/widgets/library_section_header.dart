@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/responsive/responsive.dart';
+import '../library_sizes.dart';
 
 /// Label above a platform's row of games in the library: chevron (the row
-/// collapses), platform name, its logo and how many games it holds.
+/// collapses), platform name, what its installed games take, its logo and
+/// how many games it holds.
 class LibrarySectionHeader extends StatelessWidget {
   final String title;
   final int count;
@@ -12,6 +14,9 @@ class LibrarySectionHeader extends StatelessWidget {
   final bool isSelected;
   final Color accentColor;
   final String? iconAsset;
+
+  /// Bytes this platform's installed games take; 0 shows nothing.
+  final int installedBytes;
 
   /// Games marked for uninstall in this platform (multi-select).
   final int markedCount;
@@ -26,6 +31,7 @@ class LibrarySectionHeader extends StatelessWidget {
     required this.accentColor,
     required this.onTap,
     this.iconAsset,
+    this.installedBytes = 0,
     this.markedCount = 0,
   });
 
@@ -62,17 +68,39 @@ class LibrarySectionHeader extends StatelessWidget {
             ),
             SizedBox(width: rs.isSmall ? 6 : 8),
             Expanded(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: rs.isSmall ? 12 : 14,
-                  fontWeight: FontWeight.w700,
-                  color: isSelected ? Colors.white : Colors.grey[300],
-                  letterSpacing: 0.5,
-                ),
-              ),
+              child: LayoutBuilder(builder: (context, box) {
+                // The name comes first: on a narrow screen the size shrinks
+                // to its bars, then makes way.
+                final roomy = box.maxWidth >= (rs.isSmall ? 210 : 300);
+                final showSize = installedBytes > 0 &&
+                    box.maxWidth >= (rs.isSmall ? 150 : 200);
+                return Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: rs.isSmall ? 12 : 14,
+                          fontWeight: FontWeight.w700,
+                          color: isSelected ? Colors.white : Colors.grey[300],
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    if (showSize) ...[
+                      SizedBox(width: rs.isSmall ? 8 : 12),
+                      _SizeGauge(
+                        bytes: installedBytes,
+                        showAmount: roomy,
+                        isSelected: isSelected,
+                        isSmall: rs.isSmall,
+                      ),
+                    ],
+                  ],
+                );
+              }),
             ),
             if (markedCount > 0) ...[
               _Pill(
@@ -104,6 +132,69 @@ class LibrarySectionHeader extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// How much space a platform's installed games take: five bars that fill up
+/// and brighten with the size, and the amount in plain text. The bars carry
+/// the weight twice, by how many are lit and by how bright, so it reads
+/// without telling the greens apart.
+class _SizeGauge extends StatelessWidget {
+  final int bytes;
+
+  /// Whether there is room for the amount beside the bars.
+  final bool showAmount;
+  final bool isSelected;
+  final bool isSmall;
+
+  const _SizeGauge({
+    required this.bytes,
+    required this.showAmount,
+    required this.isSelected,
+    required this.isSmall,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final level = sizeLevel(bytes);
+    final barHeight = isSmall ? 8.0 : 10.0;
+    // Unlit bars are a wash over whatever is behind them, so they also
+    // show on the lighter frame of a selected label.
+    final unlit = Colors.white.withValues(alpha: 0.18);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < sizeLevels; i++) ...[
+            if (i > 0) const SizedBox(width: 2),
+            Container(
+              width: 3,
+              height: barHeight,
+              decoration: BoxDecoration(
+                color: i <= level ? sizeRamp[level] : unlit,
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+          ],
+          if (showAmount) ...[
+            const SizedBox(width: 6),
+            Text(
+              isSmall ? formatSize(bytes) : '${formatSize(bytes)} installed',
+              style: TextStyle(
+                fontSize: isSmall ? 9 : 11,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? Colors.white : Colors.grey[300],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

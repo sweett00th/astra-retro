@@ -23,6 +23,7 @@ import '../../models/system_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/download_providers.dart';
 import '../../providers/installed_files_provider.dart';
+import '../../providers/installed_sizes_provider.dart';
 import '../../models/ra_models.dart';
 import '../../providers/game_providers.dart';
 import '../../providers/library_providers.dart';
@@ -30,6 +31,7 @@ import '../../providers/rom_status_providers.dart';
 import '../../providers/shelf_providers.dart';
 import '../../services/config_bootstrap.dart';
 import '../../services/database_service.dart';
+import '../../services/disk_space_service.dart';
 import '../../services/input_debouncer.dart';
 import '../../services/recently_played_store.dart';
 import '../../services/rom_manager.dart';
@@ -46,9 +48,11 @@ import '../../widgets/exit_confirmation_overlay.dart';
 import '../../widgets/quick_menu.dart';
 import '../../widgets/selection_aware_item.dart';
 import 'library_layout.dart';
+import 'library_sizes.dart';
 import 'shelf_edit_screen.dart';
 import 'widgets/library_entry.dart';
 import 'widgets/library_section_header.dart';
+import 'widgets/library_storage_summary.dart';
 import 'widgets/library_tabs.dart';
 import 'widgets/reorderable_card_wrapper.dart';
 import 'widgets/shelf_picker_dialog.dart';
@@ -140,8 +144,23 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   late InputDebouncer _debouncer;
 
   ProviderSubscription? _installedFilesSubscription;
+  ProviderSubscription<AsyncValue<InstalledSizes>>? _installedSizesSubscription;
   ProviderSubscription? _syncSubscription;
   Timer? _reloadDebounce;
+
+  /// Sizes on the device, as last measured; null until the first
+  /// measurement is in.
+  InstalledSizes? _sizes;
+
+  /// Sizes the sources list for their games, by entry key: what a download
+  /// would bring in.
+  Map<String, int> _serverSizes = {};
+
+  /// Bytes the installed games listed in each section take, and those of
+  /// the whole library.
+  Map<String, int> _sectionBytes = {};
+  int _installedBytesTotal = 0;
+  StorageInfo? _storage;
 
   // Raw data from DB
   List<LibraryEntry> _allGames = [];
@@ -316,6 +335,16 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           _applyFilters();
         }
       });
+      _installedSizesSubscription = ref.listenManual(installedSizesProvider,
+          (prev, next) {
+        final data = next.valueOrNull;
+        if (!mounted || data == null || identical(data, _sizes)) return;
+        setState(() {
+          _sizes = data;
+          _rebuildSizeTotals();
+        });
+        _refreshStorage();
+      }, fireImmediately: true);
       // The library is the landing page: pick up games as syncs finish.
       _syncSubscription = ref.listenManual(librarySyncServiceProvider, (prev, next) {
         if (prev == null) return;
@@ -334,6 +363,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   void dispose() {
     _exitReorderMode();
     _installedFilesSubscription?.close();
+    _installedSizesSubscription?.close();
     _syncSubscription?.close();
     _reloadDebounce?.cancel();
     _suppressionTimer?.cancel();
@@ -440,10 +470,12 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
 
     final recentlyPlayed = await _loadRecentlyPlayed();
+    final serverSizes = await db.getFileSizes();
 
     if (!mounted) return;
 
     setState(() {
+      _serverSizes = serverSizes;
       _allGames = entries;
       _favoriteIds = migratedFavorites;
       _raMatches = raMatches;
@@ -542,6 +574,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
       _filteredGames = games;
       _marked.retainAll(installedKeys);
       _rebuildSections();
+      _rebuildSizeTotals();
       _rebuildRecents();
       _layout = _newLayout();
       _restoreCursor(
@@ -1581,26 +1614,68 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   // --- Count helpers ---
 
-  bool _isGameInstalled(LibraryEntry entry) {
-    final filename = entry.filename;
-    if (_installedFiles.contains(filename)) return true;
-    // Strip archive extension for extracted ROM match
-    for (final ext in SystemModel.archiveExtensions) {
-      if (filename.toLowerCase().endsWith(ext)) {
-        final stripped = filename.substring(0, filename.length - ext.length);
-        // Folder match (multi-file games)
-        if (_installedFiles.contains(stripped)) return true;
-        // ROM extension replacement (like RomManager.getTargetFilename)
-        final system = _systemsById[entry.systemSlug];
-        if (system != null) {
-          for (final romExt in system.romExtensions) {
-            if (_installedFiles.contains('$stripped$romExt')) return true;
-          }
+  /// The names [entry] can have in its ROM folder once it is on the device.
+  List<String> _installedNames(LibraryEntry entry) =>
+      RomManager.installedNames(entry.filename, _systemsById[entry.systemSlug]);
+
+  bool _isGameInstalled(LibraryEntry entry) =>
+      _installedNames(entry).any(_installedFiles.contains);
+
+  /// Bytes the installed ones of [games] take on the device. A game counts
+  /// in every form it is there in (a folder and the archive packed from it);
+  /// a file that two entries stand for (a ROM and the archive it came from)
+  /// counts once.
+  int _bytesOnDevice(Iterable<LibraryEntry> games) {
+    final measured = _sizes;
+    if (measured == null) return 0;
+    var total = 0;
+    final counted = <String>{};
+    for (final entry in games) {
+      if (!_installedKeys.contains(entry.key)) continue;
+      final sizes = measured.bySystem[entry.systemSlug];
+      if (sizes == null) continue;
+      for (final name in _installedNames(entry)) {
+        if (!_installedFiles.contains(name)) continue;
+        final size = sizes[name];
+        if (size != null && counted.add('${entry.systemSlug}/$name')) {
+          total += size;
         }
-        return false;
       }
     }
-    return false;
+    return total;
+  }
+
+  /// Totals for the platform headers and the summary at the top. A header
+  /// speaks for the games listed under it, so it follows the tab and search.
+  void _rebuildSizeTotals() {
+    _sectionBytes = {
+      for (final section in _sections)
+        if (section.hasHeader)
+          section.key: _bytesOnDevice(
+              _filteredGames.skip(section.start).take(section.count)),
+    };
+    _installedBytesTotal = _bytesOnDevice(_allGames);
+  }
+
+  /// Asks the storage that holds the most ROM data how full it is.
+  Future<void> _refreshStorage() async {
+    final config = ref.read(bootstrappedConfigProvider).valueOrNull;
+    final measured = _sizes;
+    if (config == null || measured == null) return;
+    String? folder;
+    var most = -1;
+    for (final system in config.systems) {
+      if (system.targetFolder.isEmpty) continue;
+      final bytes = (measured.bySystem[system.id]?.values ?? const <int>[])
+          .fold<int>(0, (a, b) => a + b);
+      if (bytes > most) {
+        most = bytes;
+        folder = system.targetFolder;
+      }
+    }
+    if (folder == null) return;
+    final storage = await DiskSpaceService.getFreeSpace(folder);
+    if (mounted && storage != null) setState(() => _storage = storage);
   }
 
   /// Deduplicates installed entries that share the same display name and system
@@ -1817,7 +1892,18 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                         letterSpacing: 4,
                       ),
                     ),
-                    const Spacer(),
+                    SizedBox(width: rs.isSmall ? 12 : 20),
+                    // What the installed games take and what is left.
+                    Expanded(
+                      child: _sizes == null || _isLoading
+                          ? const SizedBox.shrink()
+                          : LibraryStorageSummary(
+                              gamesBytes: _installedBytesTotal,
+                              storage: _storage,
+                              isSmall: rs.isSmall,
+                            ),
+                    ),
+                    SizedBox(width: rs.isSmall ? 8 : 12),
                     if (_selectMode)
                       _headerChip(rs, '${_marked.length} MARKED TO UNINSTALL',
                           color: Colors.redAccent)
@@ -2124,6 +2210,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           iconAsset: system == null || system.iconName.isEmpty
               ? null
               : system.iconAssetPath,
+          installedBytes: _sectionBytes[section.key] ?? 0,
           markedCount: markedCount,
           onTap: () {
             _setCursor(cursor);
@@ -2205,6 +2292,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   Widget _buildGameTile(LibraryEntry entry, LibraryCursor cursor, int cacheWidth) {
     final isInstalled = _installedKeys.contains(entry.key);
+    // What the game takes on the device, or what a download would bring in
+    // where its source lists that.
+    final sizeBytes = isInstalled
+        ? _bytesOnDevice([entry])
+        : _serverSizes[entry.key] ?? 0;
     final systemModel = _systemsById[entry.systemSlug];
     final raMatch = _raMatches[entry.filename];
     // Platform rows already say which system a game is for.
@@ -2260,6 +2352,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           scrollSuppression: _scrollSuppression,
           isInstalled: false,
           glowColor: glow,
+          sizeLabel: sizeBytes > 0 ? formatSize(sizeBytes) : null,
+          sizeIsDownload: !isInstalled,
+          sizeColor: isInstalled ? sizeColor(sizeBytes) : null,
           isSelected: isSelected,
           // The mark badge takes the top-right corner while selecting.
           isFavorite: !_selectMode && _favoriteIds.contains(entry.filename),

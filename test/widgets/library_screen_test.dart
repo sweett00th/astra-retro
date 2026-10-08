@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,7 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:retro_eshop/features/library/library_screen.dart';
+import 'package:retro_eshop/features/library/library_sizes.dart';
 import 'package:retro_eshop/features/library/widgets/library_section_header.dart';
+import 'package:retro_eshop/features/library/widgets/library_storage_summary.dart';
 import 'package:retro_eshop/features/library/widgets/library_tabs.dart';
 import 'package:retro_eshop/l10n/app_localizations.dart';
 import 'package:retro_eshop/models/config/app_config.dart';
@@ -17,6 +20,7 @@ import 'package:retro_eshop/models/config/system_config.dart';
 import 'package:retro_eshop/providers/app_providers.dart';
 import 'package:retro_eshop/providers/game_providers.dart';
 import 'package:retro_eshop/providers/installed_files_provider.dart';
+import 'package:retro_eshop/providers/installed_sizes_provider.dart';
 import 'package:retro_eshop/providers/rom_status_providers.dart';
 import 'package:retro_eshop/services/audio_manager.dart';
 import 'package:retro_eshop/services/config_storage_service.dart';
@@ -115,18 +119,28 @@ void main() {
       inMemoryDatabasePath,
       options: OpenDatabaseOptions(
         version: 1,
-        onCreate: (db, _) => db.execute('''
-          CREATE TABLE games (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            systemSlug TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            displayName TEXT NOT NULL,
-            url TEXT NOT NULL,
-            cover_url TEXT,
-            provider_config TEXT,
-            has_thumbnail INTEGER NOT NULL DEFAULT 0
-          )
-        '''),
+        onCreate: (db, _) async {
+          await db.execute('''
+            CREATE TABLE games (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              systemSlug TEXT NOT NULL,
+              filename TEXT NOT NULL,
+              displayName TEXT NOT NULL,
+              url TEXT NOT NULL,
+              cover_url TEXT,
+              provider_config TEXT,
+              has_thumbnail INTEGER NOT NULL DEFAULT 0
+            )
+          ''');
+          await db.execute('''
+            CREATE TABLE game_metadata (
+              filename TEXT NOT NULL,
+              system_slug TEXT NOT NULL,
+              file_size INTEGER,
+              PRIMARY KEY (filename, system_slug)
+            )
+          ''');
+        },
       ),
     );
     DatabaseService.testDatabase = db;
@@ -145,12 +159,16 @@ void main() {
   });
 
   /// [installed] are the filenames on the device; [scanDir] reads them from
-  /// a real folder instead, so deleting files is seen.
+  /// a real folder instead, so deleting files is seen. [sizes] is what the
+  /// ROM folders were measured at, by system; without [measure] that
+  /// measurement is still running.
   Future<void> pumpLibrary(
     WidgetTester tester, {
     Map<String, Object> prefs = const {},
     int? savedColumns = 6,
     Set<String> installed = const {'Alpha.p8', 'Bravo.p8', 'Delta.p8'},
+    Map<String, Map<String, int>> sizes = const {},
+    bool measure = true,
     AppConfig config = AppConfig.empty,
     Directory? scanDir,
     bool topLevel = false,
@@ -185,6 +203,13 @@ void main() {
                       for (final f in scanDir.listSync())
                         f.uri.pathSegments.last,
                     });
+        }),
+        installedSizesProvider.overrideWith((ref) {
+          ref.watch(romChangeSignalProvider);
+          // A measurement that never comes in stands for one still running.
+          return measure
+              ? Future.value(InstalledSizes(sizes))
+              : Completer<InstalledSizes>().future;
         }),
       ],
       child: MaterialApp(
@@ -645,5 +670,125 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(headers(tester).map((h) => h.title), ['PICO-8', 'UNLISTED']);
     expect(titles(tester), ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']);
+  });
+
+  group('sizes', () {
+    const mb = 1024 * 1024;
+    const gb = 1024 * mb;
+    // Charlie is measured, but is not a game the library shows as installed.
+    const measured = {
+      _pico: {'Alpha.p8': 300 * mb, 'Bravo.p8': 2 * gb, 'Charlie.p8': 5 * gb},
+      _other: {'Delta.p8': 40 * mb},
+    };
+
+    BaseGameCard card(WidgetTester tester, String title) =>
+        cards(tester).firstWhere((c) => c.displayName == title);
+
+    LibraryStorageSummary summary(WidgetTester tester) =>
+        tester.widget(find.byType(LibraryStorageSummary));
+
+    testWidgets('tiles, platforms and the summary show what installed games take',
+        (tester) async {
+      await pumpLibrary(tester, sizes: measured);
+
+      expect(cards(tester).map((c) => c.sizeLabel),
+          ['300 MB', '2.0 GB', null, '40 MB', null]);
+      // The mark on a tile brightens with the size.
+      expect(card(tester, 'Delta').sizeColor, sizeRamp[0]);
+      expect(card(tester, 'Alpha').sizeColor, sizeRamp[1]);
+      expect(card(tester, 'Bravo').sizeColor, sizeRamp[2]);
+      expect(card(tester, 'Alpha').sizeIsDownload, isFalse);
+
+      expect(headers(tester).map((h) => h.installedBytes),
+          [300 * mb + 2 * gb, 40 * mb]);
+      expect(find.text('2.3 GB installed'), findsOneWidget);
+      expect(find.text('40 MB installed'), findsOneWidget);
+      // The size sits by the name; the game count stays at the far end.
+      final header = find.byType(LibrarySectionHeader).first;
+      final count = find.descendant(of: header, matching: find.text('3'));
+      expect(tester.getRect(header).right - tester.getRect(count).right,
+          lessThan(40));
+
+      expect(summary(tester).gamesBytes, 300 * mb + 2 * gb + 40 * mb);
+      expect(
+          find.descendant(
+              of: find.byType(LibraryStorageSummary),
+              matching: find.text('GAMES')),
+          findsOneWidget);
+    });
+
+    testWidgets('a platform speaks for the games listed under it',
+        (tester) async {
+      await pumpLibrary(tester, sizes: measured);
+
+      // Installed.
+      await press(tester, LogicalKeyboardKey.bracketRight);
+      expect(headers(tester).map((h) => h.installedBytes),
+          [300 * mb + 2 * gb, 40 * mb]);
+
+      // Available: none of these games is on the device.
+      await press(tester, LogicalKeyboardKey.bracketRight);
+      expect(headers(tester).map((h) => h.installedBytes), [0, 0]);
+      expect(find.textContaining(' installed'), findsNothing);
+      // The summary still counts everything on the device.
+      expect(summary(tester).gamesBytes, 300 * mb + 2 * gb + 40 * mb);
+    });
+
+    testWidgets('a game still on the server shows the size its source lists',
+        (tester) async {
+      await tester.runAsync(() => db.insert('game_metadata',
+          {'filename': 'Echo.p8', 'system_slug': _other, 'file_size': 5 * gb}));
+      await pumpLibrary(tester, sizes: measured);
+
+      final echo = card(tester, 'Echo');
+      expect(echo.sizeLabel, '5.0 GB');
+      expect(echo.sizeIsDownload, isTrue);
+      expect(echo.sizeColor, isNull);
+      // A source that lists no size leaves the tile without one.
+      expect(card(tester, 'Charlie').sizeLabel, isNull);
+      // Not on the device, so not part of what the platform takes.
+      expect(headers(tester).last.installedBytes, 40 * mb);
+    });
+
+    testWidgets('a folder game packed into one archive is on the device',
+        (tester) async {
+      await tester.runAsync(() => addGame(_pico, 'Foxtrot [ID0001]'));
+      await pumpLibrary(tester, installed: {
+        'Foxtrot [ID0001].zip'
+      }, sizes: {
+        _pico: {'Foxtrot [ID0001].zip': 3 * gb},
+      });
+
+      final foxtrot = cards(tester)
+          .firstWhere((c) => c.displayName.startsWith('Foxtrot'));
+      expect(foxtrot.glowColor, Colors.greenAccent);
+      expect(foxtrot.sizeLabel, '3.0 GB');
+      expect(tabCount(tester, 'INSTALLED'), 1);
+      expect(headers(tester).first.installedBytes, 3 * gb);
+    });
+
+    testWidgets('a file two entries stand for is counted once',
+        (tester) async {
+      // The archive Alpha.p8 was extracted from is listed as well.
+      await tester.runAsync(() => addGame(_pico, 'Alpha.zip'));
+      await pumpLibrary(tester, sizes: measured);
+
+      expect(
+          cards(tester)
+              .where((c) => c.displayName == 'Alpha')
+              .map((c) => c.sizeLabel),
+          ['300 MB', '300 MB']);
+      expect(headers(tester).first.installedBytes, 300 * mb + 2 * gb);
+      expect(summary(tester).gamesBytes, 300 * mb + 2 * gb + 40 * mb);
+    });
+
+    testWidgets('nothing is shown until the folders have been measured',
+        (tester) async {
+      await pumpLibrary(tester, measure: false);
+
+      expect(find.byType(LibraryStorageSummary), findsNothing);
+      expect(cards(tester).every((c) => c.sizeLabel == null), isTrue);
+      expect(headers(tester).every((h) => h.installedBytes == 0), isTrue);
+    });
   });
 }
