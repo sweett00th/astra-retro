@@ -28,6 +28,8 @@ import 'package:retro_eshop/services/input_debouncer.dart';
 import 'package:retro_eshop/services/sources_notifier.dart';
 import 'package:retro_eshop/services/storage_service.dart';
 import 'package:retro_eshop/widgets/base_game_card.dart';
+import 'package:retro_eshop/widgets/exit_confirmation_overlay.dart';
+import 'package:retro_eshop/widgets/quick_menu.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -64,6 +66,27 @@ class _StubSourcesNotifier extends SourcesNotifier {
         )) {
     state = const SourcesState(sources: <Source>[], loading: false);
   }
+}
+
+/// Stands in for the console list when the library is opened from it.
+class _ConsoleList extends StatefulWidget {
+  const _ConsoleList();
+
+  @override
+  State<_ConsoleList> createState() => _ConsoleListState();
+}
+
+class _ConsoleListState extends State<_ConsoleList> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.push(context,
+        MaterialPageRoute<void>(builder: (_) => const LibraryScreen())));
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      const Scaffold(body: Center(child: Text('console list')));
 }
 
 /// Platforms without box-art lookups, so tiles never touch the network: one
@@ -130,6 +153,8 @@ void main() {
     Set<String> installed = const {'Alpha.p8', 'Bravo.p8', 'Delta.p8'},
     AppConfig config = AppConfig.empty,
     Directory? scanDir,
+    bool topLevel = false,
+    bool fromConsoleList = false,
   }) async {
     tester.view.physicalSize = const Size(1280, 800);
     tester.view.devicePixelRatio = 1.0;
@@ -165,7 +190,9 @@ void main() {
       child: MaterialApp(
         localizationsDelegates: L.localizationsDelegates,
         supportedLocales: L.supportedLocales,
-        home: const LibraryScreen(),
+        home: fromConsoleList
+            ? const _ConsoleList()
+            : LibraryScreen(topLevel: topLevel),
       ),
     ));
     // First frame, then the DB load and the installed-files result.
@@ -179,6 +206,13 @@ void main() {
     for (var i = 0; i < times; i++) {
       await tester.sendKeyEvent(key);
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+  }
+
+  /// An overlay hands the keys back a moment after it is gone.
+  Future<void> settle(WidgetTester tester) async {
+    for (var i = 0; i < 4; i++) {
       await tester.pump(const Duration(milliseconds: 200));
     }
   }
@@ -489,6 +523,109 @@ void main() {
     // Let the notification finish.
     await tester.pump(const Duration(seconds: 5));
     await tester.pump(const Duration(seconds: 1));
+  });
+
+  group('as a top-level view', () {
+    testWidgets('Back asks to leave the app, and Back again takes it away',
+        (tester) async {
+      await pumpLibrary(tester, topLevel: true);
+      expect(find.text('Exit'), findsOneWidget, reason: 'the B hint');
+      expect(find.text('Back'), findsNothing);
+
+      await press(tester, LogicalKeyboardKey.escape);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(ExitConfirmationOverlay), findsOneWidget);
+      expect(find.byType(LibraryScreen), findsOneWidget);
+
+      // B answers the question with "no".
+      await press(tester, LogicalKeyboardKey.escape);
+      await settle(tester);
+      expect(find.byType(ExitConfirmationOverlay), findsNothing);
+    });
+
+    testWidgets('Android\'s back gesture does the same', (tester) async {
+      await pumpLibrary(tester, topLevel: true);
+
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(ExitConfirmationOverlay), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await settle(tester);
+      expect(find.byType(ExitConfirmationOverlay), findsNothing);
+      expect(find.byType(LibraryScreen), findsOneWidget);
+    });
+
+    testWidgets('the menu has the entries the console list has',
+        (tester) async {
+      await pumpLibrary(
+        tester,
+        topLevel: true,
+        config: const AppConfig(systems: [
+          SystemConfig(
+              id: _pico, name: 'PICO-8', targetFolder: '/roms/pico8', providers: []),
+          SystemConfig(
+              id: 'nes', name: 'NES', targetFolder: '/roms/nes', providers: []),
+        ]),
+      );
+
+      await press(tester, LogicalKeyboardKey.gameButtonStart);
+      await tester.pump(const Duration(milliseconds: 400));
+      final menu = find.byType(QuickMenuOverlay);
+      for (final label in ['Platforms', 'Sync All', 'System Files', 'Settings']) {
+        expect(find.descendant(of: menu, matching: find.text(label)),
+            findsOneWidget,
+            reason: label);
+      }
+      // No RetroArr source is set up here, so there is nothing to scan.
+      expect(find.text('Scan RetroArr library'), findsNothing);
+
+      await press(tester, LogicalKeyboardKey.escape);
+      await settle(tester);
+    });
+
+    testWidgets('a menu taller than the screen keeps the cursor in view',
+        (tester) async {
+      await pumpLibrary(tester, topLevel: true);
+      // A short, wide screen: a tablet on its side.
+      tester.view.physicalSize = const Size(1280, 420);
+      await tester.pump();
+
+      await press(tester, LogicalKeyboardKey.gameButtonStart);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull, reason: 'the panel must not overflow');
+      await press(tester, LogicalKeyboardKey.arrowDown, times: 12);
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final settings = find.descendant(
+          of: find.byType(QuickMenuOverlay), matching: find.text('Settings'));
+      expect(tester.getRect(settings).bottom, lessThanOrEqualTo(420));
+      expect(tester.getRect(settings).top, greaterThanOrEqualTo(0));
+
+      await press(tester, LogicalKeyboardKey.escape);
+      await settle(tester);
+    });
+  });
+
+  testWidgets('opened from the console list, Back returns to it',
+      (tester) async {
+    await pumpLibrary(tester, fromConsoleList: true);
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.byType(LibraryScreen), findsOneWidget);
+    expect(find.text('Back'), findsOneWidget, reason: 'the B hint');
+
+    await press(tester, LogicalKeyboardKey.gameButtonStart);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Platforms'), findsNothing,
+        reason: 'Back already leads to the console list');
+    await press(tester, LogicalKeyboardKey.escape);
+    await settle(tester);
+
+    await press(tester, LogicalKeyboardKey.escape);
+    await settle(tester);
+    expect(find.byType(ExitConfirmationOverlay), findsNothing);
+    expect(find.byType(LibraryScreen), findsNothing);
+    expect(find.text('console list'), findsOneWidget);
   });
 
   testWidgets('search shows one flat grid and restores the platforms after',

@@ -44,6 +44,8 @@ class _QuickMenuOverlayState extends ConsumerState<QuickMenuOverlay>
     with SingleTickerProviderStateMixin {
   int _focusedIndex = 0;
   final FocusNode _menuFocusNode = FocusNode(debugLabel: 'QuickMenu');
+  final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _itemKeys = {};
   late AnimationController _animController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
@@ -76,8 +78,23 @@ class _QuickMenuOverlayState extends ConsumerState<QuickMenuOverlay>
   @override
   void dispose() {
     _menuFocusNode.dispose();
+    _scrollController.dispose();
     _animController.dispose();
     super.dispose();
+  }
+
+  /// Moves the cursor and, in a menu taller than the screen, scrolls it
+  /// into view.
+  void _focusItem(int index) {
+    setState(() => _focusedIndex = index);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final itemContext = _itemKeys[index]?.currentContext;
+      if (itemContext == null || !itemContext.mounted) return;
+      Scrollable.ensureVisible(itemContext,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 120),
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit);
+    });
   }
 
   void _close() {
@@ -138,7 +155,7 @@ class _QuickMenuOverlayState extends ConsumerState<QuickMenuOverlay>
       final indices = _selectableIndices;
       final pos = indices.indexOf(_focusedIndex);
       if (pos > 0) {
-        setState(() => _focusedIndex = indices[pos - 1]);
+        _focusItem(indices[pos - 1]);
         ref.read(feedbackServiceProvider).tick();
       }
       return KeyEventResult.handled;
@@ -147,7 +164,7 @@ class _QuickMenuOverlayState extends ConsumerState<QuickMenuOverlay>
       final indices = _selectableIndices;
       final pos = indices.indexOf(_focusedIndex);
       if (pos >= 0 && pos < indices.length - 1) {
-        setState(() => _focusedIndex = indices[pos + 1]);
+        _focusItem(indices[pos + 1]);
         ref.read(feedbackServiceProvider).tick();
       }
       return KeyEventResult.handled;
@@ -217,12 +234,19 @@ class _QuickMenuOverlayState extends ConsumerState<QuickMenuOverlay>
   }
 
   Widget _buildPanel(Responsive rs) {
+    // The panel sits above the button hints; whatever does not fit below the
+    // top of the screen scrolls.
+    final bottomOffset =
+        rs.isPortrait ? rs.safeAreaBottom + 60 : rs.spacing.lg + 60;
+    final maxHeight =
+        (rs.screenHeight - bottomOffset - rs.spacing.lg).clamp(120.0, 4000.0);
     return SlideTransition(
       position: _slideAnimation,
       child: GestureDetector(
         onTap: () {}, // Block tap-through to backdrop
         child: Container(
           width: (rs.isSmall ? 220.0 : 260.0).clamp(0, rs.screenWidth * 0.45),
+          constraints: BoxConstraints(maxHeight: maxHeight),
           decoration: BoxDecoration(
             color: const Color(0xFF1A1A1A),
             borderRadius: BorderRadius.circular(rs.radius.lg),
@@ -239,9 +263,12 @@ class _QuickMenuOverlayState extends ConsumerState<QuickMenuOverlay>
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(rs.radius.lg),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: _buildItems(rs),
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: _buildItems(rs),
+              ),
             ),
           ),
         ),
@@ -270,7 +297,10 @@ class _QuickMenuOverlayState extends ConsumerState<QuickMenuOverlay>
             color: Colors.white.withValues(alpha: 0.06),
           ));
         }
-        widgets.add(_buildItem(i, rs));
+        widgets.add(KeyedSubtree(
+          key: _itemKeys.putIfAbsent(i, GlobalKey.new),
+          child: _buildItem(i, rs),
+        ));
       }
     }
     return widgets;

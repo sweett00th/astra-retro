@@ -5,14 +5,12 @@ import '../../core/input/input.dart';
 import '../../core/responsive/responsive.dart';
 import '../../core/widgets/screen_layout.dart';
 import '../../l10n/app_localizations.dart';
-import '../../models/config/source.dart';
 import '../../models/system_model.dart';
 import '../../providers/app_providers.dart';
 import '../../providers/download_providers.dart';
 import '../../providers/game_providers.dart';
 import '../../widgets/quick_menu.dart';
 import '../../providers/library_providers.dart';
-import '../../providers/ra_providers.dart';
 import '../../services/config_bootstrap.dart';
 import '../../services/input_debouncer.dart';
 import '../../widgets/exit_confirmation_overlay.dart';
@@ -20,11 +18,8 @@ import '../../core/util/color_contrast.dart';
 import '../../widgets/console_hud.dart';
 import '../../widgets/download_overlay.dart';
 import '../library/library_screen.dart';
-import '../onboarding/onboarding_screen.dart';
-import '../settings/settings_screen.dart';
-import '../sources/retroarr_scan_screen.dart';
-import '../system_files/system_files_screen.dart';
 import '../game_list/game_list_screen.dart';
+import 'app_menu.dart';
 import 'widgets/hero_carousel_item.dart';
 import 'widgets/home_grid_view.dart';
 
@@ -34,20 +29,8 @@ class HomeView extends ConsumerStatefulWidget {
   ConsumerState<HomeView> createState() => _HomeViewState();
 }
 
-/// Opens without the push animation, so the app appears to start on it;
-/// going back still animates.
-class _LandingRoute<T> extends MaterialPageRoute<T> {
-  _LandingRoute({required super.builder});
-
-  @override
-  Duration get transitionDuration => Duration.zero;
-
-  @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 300);
-}
-
 class _HomeViewState extends ConsumerState<HomeView>
-    with ConsoleScreenMixin {
+    with ConsoleScreenMixin, AppMenu {
   static bool _landedOnLibrary = false;
 
   late PageController _pageController;
@@ -124,14 +107,11 @@ class _HomeViewState extends ConsumerState<HomeView>
     _lastStablePage = _initialPage;
     _pageController.addListener(_onPageScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // The library is the landing page: it opens over the console list
-      // once per app start, so Back from it leads here.
+      // The app starts on the library. It and this console list are peers:
+      // the menu switches between them and Back on either asks to leave.
       if (mounted && !_landedOnLibrary) {
         _landedOnLibrary = true;
-        Navigator.push(
-          context,
-          _LandingRoute<void>(builder: (context) => const LibraryScreen()),
-        );
+        _openLibrary(landing: true);
       }
       Future.delayed(const Duration(milliseconds: 100), () {
         if (mounted) {
@@ -139,7 +119,7 @@ class _HomeViewState extends ConsumerState<HomeView>
         }
       });
       // Trigger background library sync
-      _triggerLibrarySync();
+      syncStaleSystems();
     });
     _visibleSystemsSub = ref.listenManual(visibleSystemsProvider, (prev, next) {
       if (next case AsyncData<List<SystemModel>>(value: final filtered)) {
@@ -172,26 +152,10 @@ class _HomeViewState extends ConsumerState<HomeView>
       (prev, isSyncing) {
         if (prev == true && !isSyncing && _resumeAutoSyncAfterManual) {
           _resumeAutoSyncAfterManual = false;
-          _triggerLibrarySync();
+          syncStaleSystems();
         }
       },
     );
-  }
-
-  Future<void> _triggerLibrarySync({Set<String> forceSystemIds = const {}}) async {
-    final config = await ref.read(bootstrappedConfigProvider.future);
-    if (!mounted) return;
-    if (config.systems.isNotEmpty) {
-      final timeout = Duration(seconds: ref.read(syncTimeoutProvider));
-      final cooldownMinutes = ref.read(syncCooldownProvider);
-      final storage = ref.read(storageServiceProvider);
-      ref.read(librarySyncServiceProvider.notifier).syncSmart(
-          config,
-          syncTimeout: timeout,
-          cooldown: Duration(minutes: cooldownMinutes),
-          forceSystemIds: forceSystemIds,
-          storageService: storage);
-    }
   }
 
   @override
@@ -257,7 +221,7 @@ class _HomeViewState extends ConsumerState<HomeView>
       return;
     }
     if (_isSystemFilesIndex) {
-      _openSystemFiles();
+      openSystemFiles();
       return;
     }
     final system = _getSystem(_currentIndex);
@@ -278,26 +242,19 @@ class _HomeViewState extends ConsumerState<HomeView>
     );
   }
 
-  void _openLibrary() {
+  void _openLibrary({bool landing = false}) {
+    _debouncer.stopHold();
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const LibraryScreen(),
+      TopLevelRoute<void>(
+        landing: landing,
+        builder: (context) => const LibraryScreen(topLevel: true),
       ),
     );
   }
 
-  /// BIOS, firmware and keys from RomDrop. Its own section: these are not
-  /// games and never appear in a console or the library.
-  void _openSystemFiles() {
-    _debouncer.stopHold();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SystemFilesScreen(),
-      ),
-    );
-  }
+  @override
+  void beforeLeavingForMenuEntry() => _debouncer.stopHold();
 
   bool _navigateLeft() {
     final page = _pageController.page;
@@ -410,42 +367,6 @@ class _HomeViewState extends ConsumerState<HomeView>
     });
   }
 
-  void _openSettings() async {
-    ref.read(feedbackServiceProvider).tick();
-    // Stop holding inputs before navigating
-    _debouncer.stopHold();
-    // Snapshot current system IDs before entering settings
-    final preSettingsIds = ref.read(bootstrappedConfigProvider).valueOrNull
-        ?.systems.map((s) => s.id).toSet() ?? <String>{};
-    final homeContext = context;
-    await Navigator.push(
-      homeContext,
-      MaterialPageRoute(
-        builder: (context) => SettingsScreen(
-          onResetOnboarding: () {
-            Navigator.of(homeContext).popUntil((route) => route.isFirst);
-            Navigator.of(homeContext).pushReplacement(
-              MaterialPageRoute(
-                builder: (context) => const OnboardingScreen(),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-    if (!mounted) return;
-    // Config may have changed — reload and smart-sync
-    ref.invalidate(bootstrappedConfigProvider);
-    final config = await ref.read(bootstrappedConfigProvider.future);
-    if (!mounted) return;
-    // Only force-sync newly added consoles
-    final newIds = config.systems.map((s) => s.id).toSet()
-        .difference(preSettingsIds);
-    if (config.systems.isNotEmpty) {
-      _triggerLibrarySync(forceSystemIds: newIds);
-    }
-  }
-
   void _openLibrarySearch() {
     ref.read(feedbackServiceProvider).tick();
     _debouncer.stopHold();
@@ -484,28 +405,14 @@ class _HomeViewState extends ConsumerState<HomeView>
           icon: Icons.sync_rounded,
           onSelect: _syncCurrentSystem,
         ),
-      if (_configuredSystems.length > 1)
-        QuickMenuItem(
-          label: l.home_syncAll,
-          icon: Icons.sync_rounded,
-          onSelect: _syncAll,
-        ),
-      if (_retroArrSources.isNotEmpty)
-        QuickMenuItem(
-          label: 'Scan RetroArr library',
-          icon: Icons.manage_search_rounded,
-          onSelect: _scanRetroArr,
-        ),
+      // --- The other top-level view, then what both views share ---
+      null,
       QuickMenuItem(
-        label: 'System Files',
-        icon: Icons.memory_rounded,
-        onSelect: _openSystemFiles,
+        label: 'Library',
+        icon: Icons.apps_rounded,
+        onSelect: _openLibrary,
       ),
-      QuickMenuItem(
-        label: l.home_settings,
-        icon: Icons.settings_rounded,
-        onSelect: _openSettings,
-      ),
+      ...appMenuItems(),
       if (hasDownloads) ...[
         null,
         QuickMenuItem(
@@ -517,19 +424,6 @@ class _HomeViewState extends ConsumerState<HomeView>
         ),
       ],
     ];
-  }
-
-  List<Source> get _retroArrSources => ref
-      .read(sourcesProvider)
-      .sources
-      .where((s) => s.type == SourceType.retroarr && s.enabled && s.url != null)
-      .toList();
-
-  void _scanRetroArr() {
-    final sources = _retroArrSources;
-    if (sources.isEmpty) return;
-    Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => RetroArrScanScreen(sources: sources)));
   }
 
   void _syncCurrentSystem() async {
@@ -553,28 +447,6 @@ class _HomeViewState extends ConsumerState<HomeView>
       config,
       syncTimeout: timeout,
       storageService: ref.read(storageServiceProvider),
-    );
-  }
-
-  void _syncAll() async {
-    final config = await ref.read(bootstrappedConfigProvider.future);
-    if (config.systems.isEmpty) return;
-    final syncService = ref.read(librarySyncServiceProvider.notifier);
-    if (ref.read(librarySyncServiceProvider).isSyncing) {
-      syncService.cancel();
-      await syncService.waitForCompletion();
-      if (!mounted) return;
-    }
-    final timeout = Duration(seconds: ref.read(syncTimeoutProvider));
-    syncService.syncAll(
-      config,
-      syncTimeout: timeout,
-      storageService: ref.read(storageServiceProvider),
-    );
-    triggerRaSync(
-      ref.read(raSyncServiceProvider.notifier),
-      ref.read(storageServiceProvider),
-      force: true,
     );
   }
 

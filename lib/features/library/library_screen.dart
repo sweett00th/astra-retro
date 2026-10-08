@@ -37,6 +37,7 @@ import '../../services/thumbnail_service.dart';
 import '../../utils/game_metadata.dart';
 import '../../utils/image_helper.dart';
 import '../game_detail/game_detail_screen.dart';
+import '../home/app_menu.dart';
 import '../../widgets/base_game_card.dart';
 import '../../widgets/console_hud.dart';
 import '../../widgets/console_notification.dart';
@@ -56,14 +57,21 @@ enum ReorderState { none, selecting, grabbed }
 
 class LibraryScreen extends ConsumerStatefulWidget {
   final bool openSearch;
-  const LibraryScreen({super.key, this.openSearch = false});
+
+  /// Whether this is the app's library view itself, rather than a search
+  /// opened from the console list. The library and the console list are
+  /// peers: the menu switches between them, and Back on either asks to
+  /// leave the app instead of showing the other one.
+  final bool topLevel;
+  const LibraryScreen(
+      {super.key, this.openSearch = false, this.topLevel = false});
 
   @override
   ConsumerState<LibraryScreen> createState() => _LibraryScreenState();
 }
 
 class _LibraryScreenState extends ConsumerState<LibraryScreen>
-    with ConsoleScreenMixin, SearchableScreenMixin {
+    with ConsoleScreenMixin, SearchableScreenMixin, AppMenu {
   // Fixed tabs: All, Installed, Available, Favorites; shelves follow.
   static const _tabAll = 0;
   static const _tabInstalled = 1;
@@ -170,6 +178,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
   final Set<String> _marked = {};
   bool _confirmUninstall = false;
   bool _uninstalling = false;
+  bool _showExitDialog = false;
 
   int get _totalTabCount => _fixedTabCount + _shelves.length;
 
@@ -1045,6 +1054,10 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
     }
     if (isSearchActive) {
       handleSearchBack();
+    } else if (widget.topLevel) {
+      // Nothing lies behind a top-level view: Back asks to leave the app,
+      // and a second Back takes the question away again.
+      setState(() => _showExitDialog = !_showExitDialog);
     } else {
       Navigator.pop(context);
     }
@@ -1526,6 +1539,15 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
           icon: Icons.swap_vert_rounded,
           onSelect: _enterReorderMode,
         ),
+      // --- The other top-level view, then what both views share ---
+      null,
+      if (widget.topLevel)
+        QuickMenuItem(
+          label: 'Platforms',
+          icon: Icons.grid_view_rounded,
+          onSelect: () => Navigator.pop(context),
+        ),
+      ...appMenuItems(),
       // --- Downloads ---
       if (hasDownloads) ...[
         null,
@@ -1693,6 +1715,11 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
                 QuickMenuOverlay(
                   items: _buildQuickMenuItems(),
                   onClose: closeQuickMenu,
+                ),
+              if (_showExitDialog)
+                ExitConfirmationOverlay(
+                  onConfirm: () => SystemNavigator.pop(),
+                  onCancel: () => setState(() => _showExitDialog = false),
                 ),
               if (_uninstalling)
                 const Positioned.fill(
@@ -2313,6 +2340,7 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
   Widget _buildHud() {
     final l = L.of(context);
+    if (_showExitDialog) return const SizedBox.shrink();
     if (_reorderState == ReorderState.grabbed) {
       return ConsoleHud(
         dpad: (label: '←↑↓→', action: l.common_move),
@@ -2354,7 +2382,9 @@ class _LibraryScreenState extends ConsumerState<LibraryScreen>
 
     return ConsoleHud(
       a: headerAction ?? HudAction(l.common_select, onTap: _handleConfirm),
-      b: HudAction(l.common_back, onTap: () => Navigator.pop(context)),
+      b: widget.topLevel
+          ? HudAction(l.common_exit, onTap: _handleBack)
+          : HudAction(l.common_back, onTap: () => Navigator.pop(context)),
       x: _installedKeys.isEmpty
           ? null
           : HudAction('Multi-select', onTap: _handleSelectButton),
